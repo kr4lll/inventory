@@ -323,10 +323,10 @@ export default function ItemPage() {
         <AutoField label="SKU / ID / serial number" mono value={item.sku ?? ''} onSave={(v) => save('sku', v)} />
         <div className="grid gap-4 sm:grid-cols-2">
           <Label text="Category">
-            <NamedSelect kind="categories" allowNone value={item.category_id} onChange={(v) => saveRef('category_id', v)} />
+            <NamedSelect kind="categories" value={item.category_id} onChange={(v) => saveRef('category_id', v)} required />
           </Label>
           <Label text="Location">
-            <NamedSelect kind="locations" allowNone value={item.location_id} onChange={(v) => saveRef('location_id', v)} />
+            <NamedSelect kind="locations" value={item.location_id} onChange={(v) => saveRef('location_id', v)} required />
           </Label>
         </div>
         <AutoField label="Description" multiline value={item.description} onSave={(v) => save('description', v)} />
@@ -368,6 +368,11 @@ export default function ItemPage() {
       <section className={cardCls}>
         <AutoField label="How to buy" multiline rows={4} value={item.how_to_buy} onSave={(v) => save('how_to_buy', v)} />
       </section>
+
+      <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 px-1 text-xs text-slate-500">
+        <span>Created: {fmtTime(item.created_at)}</span>
+        <span>Last updated: {fmtTime(item.updated_at)}</span>
+      </div>
 
       {dialog === 'delete' && (
         <Dialog title="Delete this item?">

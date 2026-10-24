@@ -151,7 +151,7 @@ export function NamedSelect({
         else onChange(e.target.value ? Number(e.target.value) : null)
       }}
     >
-      <option value="">{allowNone ? '— none —' : `Select ${noun}…`}</option>
+      <option value="" disabled={!allowNone}>{allowNone ? '— none —' : `Select ${noun}…`}</option>
       {list.map((o) => (
         <option key={o.id} value={o.id}>
           {o.name}

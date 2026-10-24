@@ -32,8 +32,8 @@ class SkuMixin(BaseModel):
 
 class ItemCreate(SkuMixin):
     name: ItemName
-    category_id: Optional[int] = None
-    location_id: Optional[int] = None
+    category_id: int
+    location_id: int
     description: str = ""
     quantity: int = 1
     low_stock: bool = False
@@ -61,7 +61,7 @@ class ItemUpdate(SkuMixin):
 
     @model_validator(mode="after")
     def no_nulls(self):
-        for f in ("name", "description", "low_stock", "note", "how_to_buy"):
+        for f in ("name", "category_id", "location_id", "description", "low_stock", "note", "how_to_buy"):
             if f in self.model_fields_set and getattr(self, f) is None:
                 raise ValueError(f"{f} cannot be null")
         return self
