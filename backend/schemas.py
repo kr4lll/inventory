@@ -17,20 +17,20 @@ class NameOut(BaseModel):
     name: str
 
 
-class SkuMixin(BaseModel):
-    sku: Optional[str] = None
+class ManufacturerNumberMixin(BaseModel):
+    manufacturer_number: Optional[str] = None
 
-    @field_validator("sku", mode="before")
+    @field_validator("manufacturer_number", mode="before")
     @classmethod
-    def clean_sku(cls, v):
+    def clean_manufacturer_number(cls, v):
         if isinstance(v, str):
             v = v.strip() or None  # empty input is stored as NULL
         if v is not None and len(v) > 100:
-            raise ValueError("SKU is too long (max 100 characters).")
+            raise ValueError("Manufacturer Number is too long (max 100 characters).")
         return v
 
 
-class ItemCreate(SkuMixin):
+class ItemCreate(ManufacturerNumberMixin):
     name: ItemName
     category_id: int
     location_id: int
@@ -48,7 +48,7 @@ class ItemCreate(SkuMixin):
         return v
 
 
-class ItemUpdate(SkuMixin):
+class ItemUpdate(ManufacturerNumberMixin):
     """PATCH body: only the fields sent are changed. Quantity is changed via movements, not here."""
     model_config = ConfigDict(extra="forbid")
     name: Optional[ItemName] = None
@@ -71,7 +71,7 @@ class ItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     name: str
-    sku: Optional[str]
+    manufacturer_number: Optional[str]
     category_id: Optional[int]
     location_id: Optional[int]
     category: Optional[NameOut]
@@ -126,7 +126,7 @@ class MovementOut(BaseModel):
     id: int
     item_id: Optional[int]
     item_name: str
-    item_sku: Optional[str]
+    item_manufacturer_number: Optional[str]
     type: str
     quantity: int
     created_at: datetime

@@ -3,7 +3,7 @@ export type NameOut = { id: number; name: string }
 export type Item = {
   id: number
   name: string
-  sku: string | null
+  manufacturer_number: string | null
   category_id: number | null
   location_id: number | null
   category: NameOut | null
@@ -24,7 +24,7 @@ export type Movement = {
   id: number
   item_id: number | null
   item_name: string
-  item_sku: string | null
+  item_manufacturer_number: string | null
   type: 'BORROW' | 'RETURN' | 'ADJUST'
   quantity: number
   created_at: string

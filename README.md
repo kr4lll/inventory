@@ -38,7 +38,7 @@ Next time, you only need `docker compose up -d`, then the backend and frontend s
 
 ## Using it
 
-- **Items:** search by name or SKU, filter by category and location. A barcode scanner types the code and presses Enter in the search box: an exact SKU match opens the item, and an unknown code offers "Add new item" with the SKU filled in.
+- **Items:** search by name or Manufacturer Number, filter by category and location. A barcode scanner types the code and presses Enter in the search box. The item opens directly only if exactly one item has that exact Manufacturer Number (spaces trimmed, case-insensitive) and no other item matches. Otherwise the exact matches are listed, or the partial matches if there are no exact ones. An unknown code offers "Add new item" with the Manufacturer Number filled in.
 - **Item page:** fields save when you click out of them. Borrow, Return and Set count change the quantity (Set count is also how you add stock). Pictures: JPEG, PNG or WebP, up to 5 MB.
 - **Movements:** read-only log of every borrow, return and count change, with a "Not yet returned" filter.
 

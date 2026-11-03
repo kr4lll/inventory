@@ -51,7 +51,7 @@ export default function HomePage() {
                 <Link to={'/items/' + i.id} className="font-medium text-blue-700 hover:underline">
                   {i.name}
                 </Link>
-                {i.sku && <span className="ml-2 font-mono text-xs text-slate-500">{i.sku}</span>}
+                {i.manufacturer_number && <span className="ml-2 font-mono text-xs text-slate-500">{i.manufacturer_number}</span>}
                 <span className="ml-2 text-slate-500">
                   {[i.category?.name, i.location?.name].filter(Boolean).join(' · ')}
                 </span>

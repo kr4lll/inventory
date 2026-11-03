@@ -8,7 +8,7 @@ export default function NewItemPage() {
   const [sp] = useSearchParams()
   const [form, setForm] = useState({
     name: '',
-    sku: sp.get('sku') ?? '', // pre-filled when coming from a barcode scan that matched nothing
+    manufacturer_number: sp.get('manufacturer_number') ?? '', // pre-filled when coming from a barcode scan that matched nothing
     quantity: '1',
     description: '',
     note: '',
@@ -60,8 +60,8 @@ export default function NewItemPage() {
         <Label text="Name *">
           <input autoFocus className={inputCls} required maxLength={200} {...text('name')} />
         </Label>
-        <Label text="SKU / ID / serial number (optional, must be unique)">
-          <input className={inputCls + ' font-mono'} maxLength={100} {...text('sku')} />
+        <Label text="Manufacturer Number (optional)">
+          <input className={inputCls + ' font-mono'} maxLength={100} {...text('manufacturer_number')} />
         </Label>
         <div className="grid gap-4 sm:grid-cols-2">
           <Label text="Category *">

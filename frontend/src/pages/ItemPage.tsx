@@ -112,7 +112,7 @@ export default function ItemPage() {
 
   async function save(field: string, value: unknown) {
     setItem(await patch<Item>(`/items/${id}`, { [field]: value }))
-    if (field === 'name' || field === 'sku') loadMoves() // log shows the new name / SKU
+    if (field === 'name' || field === 'manufacturer_number') loadMoves() // log shows the new name / number
   }
 
   async function saveRef(field: 'category_id' | 'location_id', value: number | null) {
@@ -224,7 +224,7 @@ export default function ItemPage() {
           </Link>
           <h1 className="text-xl font-semibold">
             {item.name}
-            {item.sku && <span className="ml-2 font-mono text-sm font-normal text-slate-500">{item.sku}</span>}
+            {item.manufacturer_number && <span className="ml-2 font-mono text-sm font-normal text-slate-500">{item.manufacturer_number}</span>}
           </h1>
         </div>
         <button type="button" className={btnGhost + ' text-red-700'} onClick={() => setDialog('delete')}>
@@ -320,7 +320,7 @@ export default function ItemPage() {
         </div>
 
         <AutoField label="Name" value={item.name} onSave={(v) => save('name', v)} />
-        <AutoField label="SKU / ID / serial number" mono value={item.sku ?? ''} onSave={(v) => save('sku', v)} />
+        <AutoField label="Manufacturer Number" mono value={item.manufacturer_number ?? ''} onSave={(v) => save('manufacturer_number', v)} />
         <div className="grid gap-4 sm:grid-cols-2">
           <Label text="Category">
             <NamedSelect kind="categories" value={item.category_id} onChange={(v) => saveRef('category_id', v)} required />
@@ -360,7 +360,7 @@ export default function ItemPage() {
           </ul>
         )}
         <p className="text-xs text-slate-500">
-          Latest 20. <Link className="text-blue-700 hover:underline" to={'/movements' + qs({ q: item.sku ?? item.name })}>See all movements</Link>
+          Latest 20. <Link className="text-blue-700 hover:underline" to={'/movements' + qs({ q: item.name })}>See all movements</Link>
         </p>
       </section>
 

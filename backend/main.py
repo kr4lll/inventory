@@ -53,7 +53,7 @@ def commit(db: Session):
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(409, "Duplicate value: that SKU or name is already in use.")
+        raise HTTPException(409, "Duplicate value: that name is already in use.")
 
 
 def get_item(db: Session, item_id: int, lock: bool = False) -> Item:
@@ -78,17 +78,6 @@ def item_out(db: Session, item: Item) -> ItemOut:
     out = ItemOut.model_validate(item)
     out.outstanding = outstanding(db, item.id)
     return out
-
-
-def check_sku(db: Session, sku: Optional[str], exclude_id: Optional[int] = None):
-    if sku is None:
-        return
-    stmt = select(Item).where(Item.sku == sku)
-    if exclude_id is not None:
-        stmt = stmt.where(Item.id != exclude_id)
-    other = db.scalar(stmt)
-    if other:
-        raise HTTPException(409, f"SKU '{sku}' is already used by item '{other.name}' (#{other.id}).")
 
 
 def check_refs(db: Session, category_id: Optional[int], location_id: Optional[int]):
@@ -160,6 +149,7 @@ def add_location(body: NameIn, db: Session = Depends(get_db)):
 @api.get("/items", response_model=ItemPage)
 def list_items(
     q: Optional[str] = None,
+    manufacturer_number: Optional[str] = None,  # exact match (trimmed, case-insensitive), used by barcode scans
     category_id: Optional[int] = None,
     location_id: Optional[int] = None,
     low_stock: Optional[bool] = None,
@@ -172,9 +162,12 @@ def list_items(
     q = (q or "").strip()
     if q:
         p = like(q)
-        where.append(or_(Item.name.ilike(p, escape="\\"), Item.sku.ilike(p, escape="\\")))
-        # An exact SKU match (a barcode scan) always comes first.
-        order.insert(0, case((func.lower(Item.sku) == q.lower(), 0), else_=1))
+        where.append(or_(Item.name.ilike(p, escape="\\"), Item.manufacturer_number.ilike(p, escape="\\")))
+        # An exact Manufacturer Number match always comes first.
+        order.insert(0, case((func.lower(Item.manufacturer_number) == q.lower(), 0), else_=1))
+    manufacturer_number = (manufacturer_number or "").strip()
+    if manufacturer_number:
+        where.append(func.lower(Item.manufacturer_number) == manufacturer_number.lower())
     if category_id is not None:
         where.append(Item.category_id == category_id)
     if location_id is not None:
@@ -191,7 +184,6 @@ def list_items(
 
 @api.post("/items", response_model=ItemOut, status_code=201)
 def create_item(body: ItemCreate, db: Session = Depends(get_db)):
-    check_sku(db, body.sku)
     check_refs(db, body.category_id, body.location_id)
     item = Item(**body.model_dump())
     db.add(item)
@@ -209,14 +201,12 @@ def read_item(item_id: int, db: Session = Depends(get_db)):
 def update_item(item_id: int, body: ItemUpdate, db: Session = Depends(get_db)):
     item = get_item(db, item_id, lock=True)
     data = body.model_dump(exclude_unset=True)
-    if "sku" in data:
-        check_sku(db, data["sku"], exclude_id=item.id)
     check_refs(db, data.get("category_id"), data.get("location_id"))
     for key, value in data.items():
         setattr(item, key, value)
-    if "name" in data or "sku" in data:
+    if "name" in data or "manufacturer_number" in data:
         # keep the movement log in sync while the item still exists
-        db.execute(update(Movement).where(Movement.item_id == item.id).values(item_name=item.name, item_sku=item.sku))
+        db.execute(update(Movement).where(Movement.item_id == item.id).values(item_name=item.name, item_manufacturer_number=item.manufacturer_number))
     commit(db)
     db.refresh(item)
     return item_out(db, item)
@@ -226,7 +216,7 @@ def update_item(item_id: int, body: ItemUpdate, db: Session = Depends(get_db)):
 def delete_item(item_id: int, db: Session = Depends(get_db)):
     item = get_item(db, item_id, lock=True)
     old_image = item.image_path
-    db.delete(item)  # movements keep their name/SKU snapshot; the DB sets their item_id to NULL
+    db.delete(item)  # movements keep their name/Manufacturer Number snapshot; the DB sets their item_id to NULL
     db.commit()
     remove_file(old_image)
 
@@ -260,7 +250,7 @@ def add_movement(item_id: int, body: MovementIn, db: Session = Depends(get_db)):
         if delta == 0:
             return MovementResult(item=item_out(db, item))  # nothing changed, nothing to log
         item.quantity = body.quantity
-    db.add(Movement(item_id=item.id, item_name=item.name, item_sku=item.sku, type=body.type, quantity=delta))
+    db.add(Movement(item_id=item.id, item_name=item.name, item_manufacturer_number=item.manufacturer_number, type=body.type, quantity=delta))
     commit(db)
     db.refresh(item)
     return MovementResult(item=item_out(db, item), warning=warning)
@@ -341,7 +331,7 @@ def list_movements(
     q = (q or "").strip()
     if q:
         p = like(q)
-        where.append(or_(Movement.item_name.ilike(p, escape="\\"), Movement.item_sku.ilike(p, escape="\\")))
+        where.append(or_(Movement.item_name.ilike(p, escape="\\"), Movement.item_manufacturer_number.ilike(p, escape="\\")))
     if type:
         where.append(Movement.type == type)
     if item_id is not None:

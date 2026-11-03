@@ -52,7 +52,7 @@ class Item(Base):
     __tablename__ = "items"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
-    sku: Mapped[Optional[str]] = mapped_column(String(100), unique=True)  # unique B-tree; NULLs allowed
+    manufacturer_number: Mapped[Optional[str]] = mapped_column(String(100), index=True)  # optional, not unique
     category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categories.id"))
     location_id: Mapped[Optional[int]] = mapped_column(ForeignKey("locations.id"))
     description: Mapped[str] = mapped_column(Text, default="")
@@ -79,10 +79,10 @@ class Movement(Base):
     __tablename__ = "movements"
     id: Mapped[int] = mapped_column(primary_key=True)
     # No relationship on purpose: the DB sets item_id to NULL when an item is deleted,
-    # and item_name / item_sku keep the log readable.
+    # and item_name / item_manufacturer_number keep the log readable.
     item_id: Mapped[Optional[int]] = mapped_column(ForeignKey("items.id", ondelete="SET NULL"), index=True)
     item_name: Mapped[str] = mapped_column(String(200))
-    item_sku: Mapped[Optional[str]] = mapped_column(String(100))
+    item_manufacturer_number: Mapped[Optional[str]] = mapped_column(String(100))
     type: Mapped[str] = mapped_column(String(10))  # BORROW / RETURN / ADJUST
     quantity: Mapped[int] = mapped_column(Integer)  # BORROW/RETURN: the number; ADJUST: signed difference
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

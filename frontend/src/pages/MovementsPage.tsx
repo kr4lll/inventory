@@ -49,7 +49,7 @@ export default function MovementsPage() {
       <div className="flex flex-wrap items-center gap-2">
         <input
           className={inputCls + ' flex-1 min-w-48'}
-          placeholder="Search item name or SKU"
+          placeholder="Search item name or Manufacturer Number"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
@@ -101,7 +101,7 @@ export default function MovementsPage() {
                           {m.item_name}
                         </span>
                       )}
-                      {m.item_sku && <span className="ml-2 font-mono text-xs text-slate-500">{m.item_sku}</span>}
+                      {m.item_manufacturer_number && <span className="ml-2 font-mono text-xs text-slate-500">{m.item_manufacturer_number}</span>}
                     </td>
                     <td className="px-3 py-2">
                       <span className={`rounded px-1.5 py-0.5 text-xs ${TYPE_STYLE[m.type]}`}>{TYPE_LABEL[m.type]}</span>
