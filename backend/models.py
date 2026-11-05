@@ -48,6 +48,12 @@ class Location(Base):
     name: Mapped[str] = mapped_column(String(100), unique=True)
 
 
+class Person(Base):
+    __tablename__ = "people"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+
+
 class Item(Base):
     __tablename__ = "items"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -55,6 +61,7 @@ class Item(Base):
     manufacturer_number: Mapped[Optional[str]] = mapped_column(String(100), index=True)  # optional, not unique
     category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categories.id"))
     location_id: Mapped[Optional[int]] = mapped_column(ForeignKey("locations.id"))
+    owner_id: Mapped[int] = mapped_column(ForeignKey("people.id"), index=True)
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     low_stock: Mapped[bool] = mapped_column(Boolean, default=False)
     note: Mapped[str] = mapped_column(Text, default="")
@@ -67,6 +74,7 @@ class Item(Base):
 
     category: Mapped[Optional[Category]] = relationship(lazy="selectin")
     location: Mapped[Optional[Location]] = relationship(lazy="selectin")
+    owner: Mapped[Person] = relationship(lazy="selectin")
 
     __table_args__ = (
         CheckConstraint("quantity >= 0", name="ck_items_quantity_nonneg"),
@@ -78,8 +86,12 @@ class Movement(Base):
     __tablename__ = "movements"
     id: Mapped[int] = mapped_column(primary_key=True)
     item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="RESTRICT"), index=True)
+    person_id: Mapped[Optional[int]] = mapped_column(ForeignKey("people.id"), index=True)  # NULL only for ADJUST
     type: Mapped[str] = mapped_column(String(10))  # BORROW / RETURN / ADJUST
     quantity: Mapped[int] = mapped_column(Integer)  # BORROW/RETURN: the number; ADJUST: signed difference
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    __table_args__ = (CheckConstraint("type IN ('BORROW','RETURN','ADJUST')", name="ck_movements_type"),)
+    __table_args__ = (
+        CheckConstraint("type IN ('BORROW','RETURN','ADJUST')", name="ck_movements_type"),
+        CheckConstraint("type = 'ADJUST' OR person_id IS NOT NULL", name="ck_movements_person"),
+    )

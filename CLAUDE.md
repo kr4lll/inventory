@@ -22,7 +22,8 @@ API docs: http://127.0.0.1:8000/docs
 - Everything works offline: no CDN assets or remote fonts.
 - All routes live under `/api/v1`. Errors: 422 validation, 409 business-rule violation, with a human-readable `detail` string.
 - Quantity only changes through `POST /items/{id}/movements` (BORROW / RETURN / ADJUST). It locks the item row (`SELECT ... FOR UPDATE`) and writes the movement in the same transaction. `PATCH /items/{id}` rejects `quantity`.
-- Outstanding borrowed units = sum(BORROW) - sum(RETURN) for the item. It is computed, never stored.
+- BORROW and RETURN require a person; `movement.person_id` is NULL only for ADJUST. Outstanding borrowed units = sum(BORROW) - sum(RETURN) per person per item. It is computed, never stored. Returning more than a person borrowed warns but is allowed.
+- People (`Person`) are one shared list for borrowers and owners, with no rename or removal. An item's owner is required and not editable after creation.
 - Items cannot be removed. `movement.item_id` is a required FK (ON DELETE RESTRICT), and movements show the item's current name and Manufacturer Number through a join.
 - Pictures can be replaced or removed; both delete the old file from disk.
 - Manufacturer Number is optional and not unique. Empty input is stored as NULL.
@@ -31,4 +32,4 @@ API docs: http://127.0.0.1:8000/docs
 - Images: JPEG/PNG/WebP, max 5 MB, verified with Pillow, saved under a random name in `data/images/`; only the path is stored on the item.
 
 ## Out of scope (do not build)
-Login, projects, borrower names, suppliers, purchase links, prices, quick add, archive/restore, reorder levels, custom fields, CSV import/export, backups, camera barcode scanning, label printing, tests, Alembic, containerizing the backend/frontend.
+Login, projects, suppliers, purchase links, prices, quick add, archive/restore, reorder levels, custom fields, CSV import/export, backups, camera barcode scanning, label printing, tests, Alembic, containerizing the backend/frontend.

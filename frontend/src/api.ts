@@ -6,8 +6,10 @@ export type Item = {
   manufacturer_number: string | null
   category_id: number | null
   location_id: number | null
+  owner_id: number
   category: NameOut | null
   location: NameOut | null
+  owner: NameOut
   quantity: number
   low_stock: boolean
   note: string
@@ -16,7 +18,7 @@ export type Item = {
   image_url: string | null
   created_at: string
   updated_at: string
-  outstanding: number | null
+  outstanding: { person: string; quantity: number }[] | null
 }
 
 export type Movement = {
@@ -24,6 +26,7 @@ export type Movement = {
   item_id: number
   item_name: string
   item_manufacturer_number: string | null
+  person: string | null
   type: 'BORROW' | 'RETURN' | 'ADJUST'
   quantity: number
   created_at: string

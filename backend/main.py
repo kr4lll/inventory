@@ -10,13 +10,14 @@ from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
-from models import IMAGE_DIR, ROOT, Base, Category, Item, Location, Movement, SessionLocal, engine
+from models import IMAGE_DIR, ROOT, Base, Category, Item, Location, Movement, Person, SessionLocal, engine
 from schemas import (
     HomeOut, ItemCreate, ItemOut, ItemPage, ItemUpdate, MovementIn, MovementOut,
-    MovementPage, MovementResult, NameIn, NameOut,
+    MovementPage, MovementResult, NameIn, NameOut, PersonOutstanding,
 )
 
 DEFAULT_CATEGORIES = ["Mechanical", "Electrical", "Electronics", "EE"]
+DEFAULT_PEOPLE = ["Mecatron", "IES", "JPC", "Project House"]
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 IMAGE_EXT = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}
 
@@ -33,7 +34,9 @@ async def lifespan(app: FastAPI):
     with SessionLocal() as db:
         if not db.scalar(select(func.count(Category.id))):
             db.add_all([Category(name=n) for n in DEFAULT_CATEGORIES])
-            db.commit()
+        if not db.scalar(select(func.count(Person.id))):
+            db.add_all([Person(name=n) for n in DEFAULT_PEOPLE])
+        db.commit()
     yield
 
 
@@ -70,8 +73,22 @@ def get_item(db: Session, item_id: int, lock: bool = False) -> Item:
 DELTA = case((Movement.type == "BORROW", Movement.quantity), (Movement.type == "RETURN", -Movement.quantity), else_=0)
 
 
-def outstanding(db: Session, item_id: int) -> int:
-    return max(db.scalar(select(func.coalesce(func.sum(DELTA), 0)).where(Movement.item_id == item_id)), 0)
+def outstanding(db: Session, item_id: int) -> list[PersonOutstanding]:
+    rows = db.execute(
+        select(Person.name, func.sum(DELTA))
+        .select_from(Movement)
+        .join(Person, Person.id == Movement.person_id)
+        .where(Movement.item_id == item_id)
+        .group_by(Person.id, Person.name)
+        .having(func.sum(DELTA) > 0)
+        .order_by(func.lower(Person.name))
+    ).all()
+    return [PersonOutstanding(person=name, quantity=n) for name, n in rows]
+
+
+def person_outstanding(db: Session, item_id: int, person_id: int) -> int:
+    stmt = select(func.coalesce(func.sum(DELTA), 0)).where(Movement.item_id == item_id, Movement.person_id == person_id)
+    return max(db.scalar(stmt), 0)
 
 
 def item_out(db: Session, item: Item) -> ItemOut:
@@ -80,11 +97,13 @@ def item_out(db: Session, item: Item) -> ItemOut:
     return out
 
 
-def check_refs(db: Session, category_id: Optional[int], location_id: Optional[int]):
+def check_refs(db: Session, category_id: Optional[int], location_id: Optional[int], owner_id: Optional[int] = None):
     if category_id is not None and db.get(Category, category_id) is None:
         raise HTTPException(422, "Unknown category.")
     if location_id is not None and db.get(Location, location_id) is None:
         raise HTTPException(422, "Unknown location.")
+    if owner_id is not None and db.get(Person, owner_id) is None:
+        raise HTTPException(422, "Unknown owner.")
 
 
 def like(q: str) -> str:
@@ -122,7 +141,7 @@ def home(db: Session = Depends(get_db)):
     return HomeOut(total_items=total, low_stock_count=low_count, low_stock_items=low_items)
 
 
-# ---------- categories / locations ----------
+# ---------- categories / locations / people ----------
 
 @api.get("/categories", response_model=list[NameOut])
 def list_categories(db: Session = Depends(get_db)):
@@ -144,6 +163,16 @@ def add_location(body: NameIn, db: Session = Depends(get_db)):
     return create_named(db, Location, body.name, "Location")
 
 
+@api.get("/people", response_model=list[NameOut])
+def list_people(db: Session = Depends(get_db)):
+    return db.scalars(select(Person).order_by(func.lower(Person.name))).all()
+
+
+@api.post("/people", response_model=NameOut, status_code=201)
+def add_person(body: NameIn, db: Session = Depends(get_db)):
+    return create_named(db, Person, body.name, "Person")
+
+
 # ---------- items ----------
 
 @api.get("/items", response_model=ItemPage)
@@ -152,6 +181,7 @@ def list_items(
     manufacturer_number: Optional[str] = None,  # exact match (trimmed, case-insensitive), used by barcode scans
     category_id: Optional[int] = None,
     location_id: Optional[int] = None,
+    owner_id: Optional[int] = None,
     low_stock: Optional[bool] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
@@ -172,6 +202,8 @@ def list_items(
         where.append(Item.category_id == category_id)
     if location_id is not None:
         where.append(Item.location_id == location_id)
+    if owner_id is not None:
+        where.append(Item.owner_id == owner_id)
     if low_stock is not None:
         where.append(Item.low_stock == low_stock)
 
@@ -184,7 +216,7 @@ def list_items(
 
 @api.post("/items", response_model=ItemOut, status_code=201)
 def create_item(body: ItemCreate, db: Session = Depends(get_db)):
-    check_refs(db, body.category_id, body.location_id)
+    check_refs(db, body.category_id, body.location_id, body.owner_id)
     item = Item(**body.model_dump())
     db.add(item)
     commit(db)
@@ -222,15 +254,18 @@ def toggle_low_stock(item_id: int, db: Session = Depends(get_db)):
 def add_movement(item_id: int, body: MovementIn, db: Session = Depends(get_db)):
     item = get_item(db, item_id, lock=True)  # row stays locked until commit
     warning = None
+    person = db.get(Person, body.person_id) if body.person_id is not None else None
+    if body.type != "ADJUST" and person is None:
+        raise HTTPException(422, "Unknown person.")
     if body.type == "BORROW":
         if body.quantity > item.quantity:
             raise HTTPException(409, f"Cannot borrow {body.quantity}: only {item.quantity} available.")
         item.quantity -= body.quantity
         delta = body.quantity
     elif body.type == "RETURN":
-        out = outstanding(db, item.id)
+        out = person_outstanding(db, item.id, person.id)
         if body.quantity > out:
-            warning = f"You returned {body.quantity}, but only {out} were recorded as borrowed. The quantity was increased anyway."
+            warning = f"{person.name} returned {body.quantity}, but only {out} recorded as borrowed by them. The quantity was increased anyway."
         item.quantity += body.quantity
         delta = body.quantity
     else:  # ADJUST: body.quantity is the new actual count
@@ -238,7 +273,7 @@ def add_movement(item_id: int, body: MovementIn, db: Session = Depends(get_db)):
         if delta == 0:
             return MovementResult(item=item_out(db, item))  # nothing changed, nothing to log
         item.quantity = body.quantity
-    db.add(Movement(item_id=item.id, type=body.type, quantity=delta))
+    db.add(Movement(item_id=item.id, person_id=person.id if body.type != "ADJUST" else None, type=body.type, quantity=delta))
     commit(db)
     db.refresh(item)
     return MovementResult(item=item_out(db, item), warning=warning)
@@ -300,16 +335,24 @@ def get_image(filename: str):
 def list_movements(
     q: Optional[str] = None,
     type: Optional[Literal["BORROW", "RETURN", "ADJUST"]] = None,
-    not_returned: bool = False,
+    person_id: Optional[int] = None,
+    not_returned: bool = False,  # items where any person still has units out
     item_id: Optional[int] = None,  # used by the item page to show just one item's history
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    # per-item outstanding units: total borrowed minus total returned
+    # per-item outstanding units: each person's borrowed minus returned, adding up those still out
+    per_person = (
+        select(Movement.item_id.label("item_id"), func.sum(DELTA).label("units"))
+        .where(Movement.person_id.is_not(None))
+        .group_by(Movement.item_id, Movement.person_id)
+        .having(func.sum(DELTA) > 0)
+        .subquery()
+    )
     out_sq = (
-        select(Movement.item_id.label("item_id"), func.sum(DELTA).label("outstanding"))
-        .group_by(Movement.item_id)
+        select(per_person.c.item_id, func.sum(per_person.c.units).label("outstanding"))
+        .group_by(per_person.c.item_id)
         .subquery()
     )
     join = out_sq.c.item_id == Movement.item_id
@@ -323,14 +366,17 @@ def list_movements(
         where.append(Movement.type == type)
     if item_id is not None:
         where.append(Movement.item_id == item_id)
+    if person_id is not None:
+        where.append(Movement.person_id == person_id)
     if not_returned:
         where.append(out_sq.c.outstanding > 0)
 
     total = db.scalar(select(func.count()).select_from(Movement).join(Item, Item.id == Movement.item_id).outerjoin(out_sq, join).where(*where))
     rows = db.execute(
-        select(Movement, Item.name, Item.manufacturer_number, func.coalesce(out_sq.c.outstanding, 0))
+        select(Movement, Item.name, Item.manufacturer_number, Person.name, func.coalesce(out_sq.c.outstanding, 0))
         .select_from(Movement)
         .join(Item, Item.id == Movement.item_id)
+        .outerjoin(Person, Person.id == Movement.person_id)
         .outerjoin(out_sq, join)
         .where(*where)
         .order_by(Movement.created_at.desc(), Movement.id.desc())
@@ -340,10 +386,10 @@ def list_movements(
 
     items = [
         MovementOut(
-            id=m.id, item_id=m.item_id, item_name=name, item_manufacturer_number=number,
-            type=m.type, quantity=m.quantity, created_at=m.created_at, outstanding=max(int(out), 0),
+            id=m.id, item_id=m.item_id, item_name=name, item_manufacturer_number=number, person=person,
+            type=m.type, quantity=m.quantity, created_at=m.created_at, outstanding=int(out),
         )
-        for m, name, number, out in rows
+        for m, name, number, person, out in rows
     ]
     return MovementPage(items=items, total=total, page=page, page_size=page_size)
 

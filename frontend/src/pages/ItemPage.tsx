@@ -78,6 +78,7 @@ export default function ItemPage() {
   const [borrowN, setBorrowN] = useState('1')
   const [returnN, setReturnN] = useState('1')
   const [countN, setCountN] = useState('')
+  const [personId, setPersonId] = useState<number | null>(null)
 
   const loadMoves = () =>
     api<Page<Movement>>('/movements' + qs({ item_id: id, page_size: 20 }))
@@ -119,11 +120,11 @@ export default function ItemPage() {
     }
   }
 
-  async function stock(type: 'BORROW' | 'RETURN' | 'ADJUST', quantity: number): Promise<boolean> {
+  async function stock(type: 'BORROW' | 'RETURN' | 'ADJUST', quantity: number, person_id?: number): Promise<boolean> {
     setBusy(true)
     setNotice(null)
     try {
-      const res = await post<MovementResult>(`/items/${id}/movements`, { type, quantity })
+      const res = await post<MovementResult>(`/items/${id}/movements`, { type, quantity, person_id })
       setItem(res.item)
       if (res.warning) setNotice({ kind: 'warn', text: res.warning })
       await loadMoves()
@@ -139,13 +140,21 @@ export default function ItemPage() {
   async function borrow() {
     const n = parseWhole(borrowN, 1)
     if (n === null) return setNotice({ kind: 'err', text: 'Enter a whole number, 1 or more.' })
-    if (await stock('BORROW', n)) setBorrowN('1')
+    if (personId === null) return setNotice({ kind: 'err', text: 'Please choose a person.' })
+    if (await stock('BORROW', n, personId)) {
+      setBorrowN('1')
+      setPersonId(null) // choose again next time, so nothing is logged against the wrong person
+    }
   }
 
   async function giveBack() {
     const n = parseWhole(returnN, 1)
     if (n === null) return setNotice({ kind: 'err', text: 'Enter a whole number, 1 or more.' })
-    if (await stock('RETURN', n)) setReturnN('1')
+    if (personId === null) return setNotice({ kind: 'err', text: 'Please choose a person.' })
+    if (await stock('RETURN', n, personId)) {
+      setReturnN('1')
+      setPersonId(null)
+    }
   }
 
   async function setCount() {
@@ -224,6 +233,10 @@ export default function ItemPage() {
 
         {notice && <p className={`rounded border px-3 py-2 text-sm ${noticeCls}`}>{notice.text}</p>}
 
+        <Label text="Person (required for Borrow and Return)">
+          <NamedSelect kind="people" value={personId} onChange={setPersonId} required />
+        </Label>
+
         {/* No <form> here, so Enter in a number box never submits anything. */}
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="space-y-1">
@@ -299,6 +312,9 @@ export default function ItemPage() {
             <NamedSelect kind="locations" value={item.location_id} onChange={(v) => saveRef('location_id', v)} required />
           </Label>
         </div>
+        <p className="text-sm">
+          <span className="font-medium text-slate-700">Owner:</span> {item.owner.name}
+        </p>
         <AutoField label="Note" multiline rows={2} value={item.note} onSave={(v) => save('note', v)} />
       </section>
 
@@ -306,9 +322,9 @@ export default function ItemPage() {
       <section className={cardCls + ' space-y-3'}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-semibold">Movements</h2>
-          {item.outstanding !== null && item.outstanding > 0 && (
+          {item.outstanding && item.outstanding.length > 0 && (
             <span className="rounded bg-amber-100 px-2 py-1 text-sm font-semibold text-amber-900 ring-1 ring-amber-300">
-              {item.outstanding} currently borrowed, not yet returned
+              {item.outstanding.map((o) => `${o.person}: ${o.quantity}`).join(', ')} not yet returned
             </span>
           )}
         </div>
@@ -320,8 +336,8 @@ export default function ItemPage() {
               <li key={m.id} className="flex justify-between gap-3 py-1.5">
                 <span className="text-slate-500">{fmtTime(m.created_at)}</span>
                 <span>
-                  {m.type === 'BORROW' && `Borrowed ${m.quantity}`}
-                  {m.type === 'RETURN' && `Returned ${m.quantity}`}
+                  {m.type === 'BORROW' && `${m.person} borrowed ${m.quantity}`}
+                  {m.type === 'RETURN' && `${m.person} returned ${m.quantity}`}
                   {m.type === 'ADJUST' && `Adjusted ${m.quantity > 0 ? '+' : ''}${m.quantity}`}
                 </span>
               </li>

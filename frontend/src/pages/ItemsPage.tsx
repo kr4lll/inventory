@@ -12,6 +12,7 @@ export default function ItemsPage() {
   const exact = get('exact') === '1' // list only exact Manufacturer Number matches for q (after a scan)
   const category = get('category')
   const location = get('location')
+  const owner = get('owner')
   const page = Number(get('page')) || 1
 
   const [text, setText] = useState(q)
@@ -20,6 +21,7 @@ export default function ItemsPage() {
   const [scanMiss, setScanMiss] = useState('')
   const [categories] = useNamed('categories')
   const [locations] = useNamed('locations')
+  const [people] = useNamed('people')
 
   // Search as you type (debounced).
   useEffect(() => {
@@ -38,6 +40,7 @@ export default function ItemsPage() {
           manufacturer_number: exact ? q : undefined,
           category_id: category,
           location_id: location,
+          owner_id: owner,
           page,
           page_size: PAGE_SIZE,
         }),
@@ -51,7 +54,7 @@ export default function ItemsPage() {
     return () => {
       cancelled = true
     }
-  }, [q, exact, category, location, page])
+  }, [q, exact, category, location, owner, page])
 
   // Barcode scanners type the code and press Enter. There is no <form> here, so Enter can never submit anything.
   async function onEnter() {
@@ -66,15 +69,15 @@ export default function ItemsPage() {
       if (matches.total === 1 && all.total === 1) return navigate('/items/' + matches.items[0].id)
       setScanMiss(all.total === 0 ? code : '')
       setText(code)
-      // Exact matches hide partial ones, and a scan looks across all categories and locations.
-      if (matches.total > 0) set({ q: code, exact: '1', category: '', location: '', page: '' })
+      // Exact matches hide partial ones, and a scan looks across all categories, locations and owners.
+      if (matches.total > 0) set({ q: code, exact: '1', category: '', location: '', owner: '', page: '' })
       else set({ q: code, exact: '', page: '' })
     } catch (e) {
       setError(errText(e))
     }
   }
 
-  const filtered = q || category || location
+  const filtered = q || category || location || owner
 
   return (
     <div className="space-y-4">
@@ -120,6 +123,18 @@ export default function ItemsPage() {
             </option>
           ))}
         </select>
+        <select
+          className={inputCls + ' w-auto'}
+          value={owner}
+          onChange={(e) => set({ owner: e.target.value, page: '' })}
+        >
+          <option value="">All owners</option>
+          {people.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       <ErrorBox message={error} />
@@ -155,6 +170,7 @@ export default function ItemsPage() {
                   <th className="px-3 py-2">Name / Manufacturer Number</th>
                   <th className="px-3 py-2">Category</th>
                   <th className="px-3 py-2">Location</th>
+                  <th className="px-3 py-2">Owner</th>
                   <th className="px-3 py-2 text-right">Qty</th>
                 </tr>
               </thead>
@@ -172,6 +188,7 @@ export default function ItemsPage() {
                     </td>
                     <td className="px-3 py-2 text-slate-600">{i.category?.name ?? '—'}</td>
                     <td className="px-3 py-2 text-slate-600">{i.location?.name ?? '—'}</td>
+                    <td className="px-3 py-2 text-slate-600">{i.owner.name}</td>
                     <td className="px-3 py-2 text-right font-medium">{i.quantity}</td>
                   </tr>
                 ))}

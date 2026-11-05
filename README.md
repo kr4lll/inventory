@@ -32,15 +32,16 @@ npm install
 npm run dev
 ```
 
-Open http://127.0.0.1:5173. Tables are created and the default categories (Mechanical, Electrical, Electronics, EE) are added automatically the first time the backend starts. The frontend proxies `/api` to the backend.
+Open http://127.0.0.1:5173. Tables are created and the default categories (Mechanical, Electrical, Electronics, EE) and people (Mecatron, IES, JPC, Project House) are added automatically the first time the backend starts. The frontend proxies `/api` to the backend.
 
 Next time, you only need `docker compose up -d`, then the backend and frontend start commands.
 
 ## Using it
 
-- **Items:** search by name or Manufacturer Number, filter by category and location. A barcode scanner types the code and presses Enter in the search box. The item opens directly only if exactly one item has that exact Manufacturer Number (spaces trimmed, case-insensitive) and no other item matches. Otherwise the exact matches are listed, or the partial matches if there are no exact ones. An unknown code offers "Add new item" with the Manufacturer Number filled in.
-- **Item page:** fields save when you click out of them. Borrow, Return and Set count change the quantity (Set count is also how you add stock; setting it to 0 just saves 0). Items cannot be removed. Pictures: JPEG, PNG or WebP, up to 5 MB.
-- **Movements:** read-only log of every borrow, return and count change, with a "Not yet returned" filter.
+- **Items:** search by name or Manufacturer Number, filter by category, location and owner. A barcode scanner types the code and presses Enter in the search box. The item opens directly only if exactly one item has that exact Manufacturer Number (spaces trimmed, case-insensitive) and no other item matches. Otherwise the exact matches are listed, or the partial matches if there are no exact ones. An unknown code offers "Add new item" with the Manufacturer Number filled in.
+- **Item page:** fields save when you click out of them. Borrow and Return need a person and change the quantity, as does Set count (Set count is also how you add stock; setting it to 0 just saves 0). Items cannot be removed. Pictures: JPEG, PNG or WebP, up to 5 MB.
+- **People:** one shared list for borrowers and owners. Dropdowns have "+ Add new". Every item has an owner, chosen when it is created and not editable after that.
+- **Movements:** read-only log of every borrow, return and count change, with a person filter and a "Not yet returned" filter (items where any person still has units out).
 
 ## Reset the local database
 

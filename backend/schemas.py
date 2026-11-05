@@ -34,6 +34,7 @@ class ItemCreate(ManufacturerNumberMixin):
     name: ItemName
     category_id: int
     location_id: int
+    owner_id: int
     quantity: int = 1
     low_stock: bool = False
     note: str = ""
@@ -65,6 +66,11 @@ class ItemUpdate(ManufacturerNumberMixin):
         return self
 
 
+class PersonOutstanding(BaseModel):
+    person: str
+    quantity: int
+
+
 class ItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -72,8 +78,10 @@ class ItemOut(BaseModel):
     manufacturer_number: Optional[str]
     category_id: Optional[int]
     location_id: Optional[int]
+    owner_id: int
     category: Optional[NameOut]
     location: Optional[NameOut]
+    owner: NameOut
     quantity: int
     low_stock: bool
     note: str
@@ -81,7 +89,7 @@ class ItemOut(BaseModel):
     image_path: Optional[str]
     created_at: datetime
     updated_at: datetime
-    outstanding: Optional[int] = None  # borrowed minus returned; only filled on the single-item endpoints
+    outstanding: Optional[list[PersonOutstanding]] = None  # per person; only filled on the single-item endpoints
 
     @computed_field
     @property
@@ -101,6 +109,7 @@ class ItemPage(BaseModel):
 class MovementIn(BaseModel):
     type: Literal["BORROW", "RETURN", "ADJUST"]
     quantity: int  # BORROW/RETURN: how many. ADJUST: the new actual quantity.
+    person_id: Optional[int] = None  # required for BORROW/RETURN
 
     @model_validator(mode="after")
     def check(self):
@@ -110,6 +119,8 @@ class MovementIn(BaseModel):
             raise ValueError("New quantity cannot be negative.")
         if self.type != "ADJUST" and self.quantity < 1:
             raise ValueError("Quantity must be at least 1.")
+        if self.type != "ADJUST" and self.person_id is None:
+            raise ValueError("Please choose a person.")
         return self
 
 
@@ -123,6 +134,7 @@ class MovementOut(BaseModel):
     item_id: int
     item_name: str  # the item's current name and number, joined in
     item_manufacturer_number: Optional[str]
+    person: Optional[str]  # NULL only for ADJUST
     type: str
     quantity: int
     created_at: datetime

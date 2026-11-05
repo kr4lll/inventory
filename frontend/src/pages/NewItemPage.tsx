@@ -15,6 +15,7 @@ export default function NewItemPage() {
   })
   const [categoryId, setCategoryId] = useState<number | null>(null)
   const [locationId, setLocationId] = useState<number | null>(null)
+  const [ownerId, setOwnerId] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -34,6 +35,7 @@ export default function NewItemPage() {
     if (!form.name.trim()) return setError('Name is required.')
     if (categoryId === null) return setError('Please choose a category.')
     if (locationId === null) return setError('Please choose a location.')
+    if (ownerId === null) return setError('Please choose an owner.')
     if (form.quantity.trim() === '' || !Number.isInteger(quantity) || quantity < 0)
       return setError('Quantity must be a whole number, 0 or more.')
     setBusy(true)
@@ -44,6 +46,7 @@ export default function NewItemPage() {
         quantity,
         category_id: categoryId,
         location_id: locationId,
+        owner_id: ownerId,
       })
       navigate('/items/' + item.id)
     } catch (err) {
@@ -70,6 +73,9 @@ export default function NewItemPage() {
             <NamedSelect kind="locations" value={locationId} onChange={setLocationId} required />
           </Label>
         </div>
+        <Label text="Owner *">
+          <NamedSelect kind="people" value={ownerId} onChange={setOwnerId} required />
+        </Label>
         <Label text="Quantity *">
           <input type="number" min={0} step={1} required className={inputCls + ' w-32'} {...text('quantity')} />
         </Label>

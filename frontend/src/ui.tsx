@@ -68,8 +68,11 @@ export function Pager({
   )
 }
 
-// Loads the category or location list.
-export function useNamed(kind: 'categories' | 'locations') {
+type NamedKind = 'categories' | 'locations' | 'people'
+const NOUN = { categories: 'category', locations: 'location', people: 'person' }
+
+// Loads the category, location or people list.
+export function useNamed(kind: NamedKind) {
   const [list, setList] = useState<NameOut[]>([])
   useEffect(() => {
     api<NameOut[]>('/' + kind).then(setList).catch(() => {})
@@ -85,7 +88,7 @@ export function NamedSelect({
   allowNone = false,
   required = false,
 }: {
-  kind: 'categories' | 'locations'
+  kind: NamedKind
   value: number | null
   onChange: (id: number | null) => void
   allowNone?: boolean
@@ -95,7 +98,7 @@ export function NamedSelect({
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
   const [error, setError] = useState('')
-  const noun = kind === 'categories' ? 'category' : 'location'
+  const noun = NOUN[kind]
 
   async function create() {
     if (!name.trim()) return
