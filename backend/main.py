@@ -6,7 +6,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from PIL import Image
-from sqlalchemy import case, func, or_, select, text, update
+from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
@@ -204,21 +204,9 @@ def update_item(item_id: int, body: ItemUpdate, db: Session = Depends(get_db)):
     check_refs(db, data.get("category_id"), data.get("location_id"))
     for key, value in data.items():
         setattr(item, key, value)
-    if "name" in data or "manufacturer_number" in data:
-        # keep the movement log in sync while the item still exists
-        db.execute(update(Movement).where(Movement.item_id == item.id).values(item_name=item.name, item_manufacturer_number=item.manufacturer_number))
     commit(db)
     db.refresh(item)
     return item_out(db, item)
-
-
-@api.delete("/items/{item_id}", status_code=204)
-def delete_item(item_id: int, db: Session = Depends(get_db)):
-    item = get_item(db, item_id, lock=True)
-    old_image = item.image_path
-    db.delete(item)  # movements keep their name/Manufacturer Number snapshot; the DB sets their item_id to NULL
-    db.commit()
-    remove_file(old_image)
 
 
 @api.post("/items/{item_id}/low-stock", response_model=ItemOut)
@@ -250,7 +238,7 @@ def add_movement(item_id: int, body: MovementIn, db: Session = Depends(get_db)):
         if delta == 0:
             return MovementResult(item=item_out(db, item))  # nothing changed, nothing to log
         item.quantity = body.quantity
-    db.add(Movement(item_id=item.id, item_name=item.name, item_manufacturer_number=item.manufacturer_number, type=body.type, quantity=delta))
+    db.add(Movement(item_id=item.id, type=body.type, quantity=delta))
     commit(db)
     db.refresh(item)
     return MovementResult(item=item_out(db, item), warning=warning)
@@ -321,7 +309,6 @@ def list_movements(
     # per-item outstanding units: total borrowed minus total returned
     out_sq = (
         select(Movement.item_id.label("item_id"), func.sum(DELTA).label("outstanding"))
-        .where(Movement.item_id.is_not(None))
         .group_by(Movement.item_id)
         .subquery()
     )
@@ -331,7 +318,7 @@ def list_movements(
     q = (q or "").strip()
     if q:
         p = like(q)
-        where.append(or_(Movement.item_name.ilike(p, escape="\\"), Movement.item_manufacturer_number.ilike(p, escape="\\")))
+        where.append(or_(Item.name.ilike(p, escape="\\"), Item.manufacturer_number.ilike(p, escape="\\")))
     if type:
         where.append(Movement.type == type)
     if item_id is not None:
@@ -339,9 +326,11 @@ def list_movements(
     if not_returned:
         where.append(out_sq.c.outstanding > 0)
 
-    total = db.scalar(select(func.count()).select_from(Movement).outerjoin(out_sq, join).where(*where))
+    total = db.scalar(select(func.count()).select_from(Movement).join(Item, Item.id == Movement.item_id).outerjoin(out_sq, join).where(*where))
     rows = db.execute(
-        select(Movement, func.coalesce(out_sq.c.outstanding, 0))
+        select(Movement, Item.name, Item.manufacturer_number, func.coalesce(out_sq.c.outstanding, 0))
+        .select_from(Movement)
+        .join(Item, Item.id == Movement.item_id)
         .outerjoin(out_sq, join)
         .where(*where)
         .order_by(Movement.created_at.desc(), Movement.id.desc())
@@ -349,11 +338,13 @@ def list_movements(
         .offset((page - 1) * page_size)
     ).all()
 
-    items = []
-    for movement, out in rows:
-        m = MovementOut.model_validate(movement)
-        m.outstanding = max(int(out), 0)
-        items.append(m)
+    items = [
+        MovementOut(
+            id=m.id, item_id=m.item_id, item_name=name, item_manufacturer_number=number,
+            type=m.type, quantity=m.quantity, created_at=m.created_at, outstanding=max(int(out), 0),
+        )
+        for m, name, number, out in rows
+    ]
     return MovementPage(items=items, total=total, page=page, page_size=page_size)
 
 

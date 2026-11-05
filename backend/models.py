@@ -77,11 +77,7 @@ class Item(Base):
 class Movement(Base):
     __tablename__ = "movements"
     id: Mapped[int] = mapped_column(primary_key=True)
-    # No relationship on purpose: the DB sets item_id to NULL when an item is deleted,
-    # and item_name / item_manufacturer_number keep the log readable.
-    item_id: Mapped[Optional[int]] = mapped_column(ForeignKey("items.id", ondelete="SET NULL"), index=True)
-    item_name: Mapped[str] = mapped_column(String(200))
-    item_manufacturer_number: Mapped[Optional[str]] = mapped_column(String(100))
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="RESTRICT"), index=True)
     type: Mapped[str] = mapped_column(String(10))  # BORROW / RETURN / ADJUST
     quantity: Mapped[int] = mapped_column(Integer)  # BORROW/RETURN: the number; ADJUST: signed difference
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

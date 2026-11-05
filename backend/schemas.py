@@ -119,15 +119,14 @@ class MovementResult(BaseModel):
 
 
 class MovementOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
     id: int
-    item_id: Optional[int]
-    item_name: str
+    item_id: int
+    item_name: str  # the item's current name and number, joined in
     item_manufacturer_number: Optional[str]
     type: str
     quantity: int
     created_at: datetime
-    outstanding: Optional[int] = None  # units of this item still borrowed (0 if item deleted)
+    outstanding: int  # units of this item still borrowed
 
 
 class MovementPage(BaseModel):

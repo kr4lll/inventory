@@ -7,7 +7,6 @@ export const inputCls =
 const btn = 'rounded px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50'
 export const btnPrimary = btn + ' bg-blue-600 text-white hover:bg-blue-700'
 export const btnGhost = btn + ' border border-slate-300 bg-white hover:bg-slate-100'
-export const btnDanger = btn + ' bg-red-600 text-white hover:bg-red-700'
 export const cardCls = 'rounded-lg border border-slate-200 bg-white p-4 shadow-sm'
 
 export const fmtTime = (iso: string) => new Date(iso).toLocaleString()

@@ -21,13 +21,13 @@ export type Item = {
 
 export type Movement = {
   id: number
-  item_id: number | null
+  item_id: number
   item_name: string
   item_manufacturer_number: string | null
   type: 'BORROW' | 'RETURN' | 'ADJUST'
   quantity: number
   created_at: string
-  outstanding: number | null
+  outstanding: number
 }
 
 export type Page<T> = { items: T[]; total: number; page: number; page_size: number }

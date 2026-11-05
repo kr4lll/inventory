@@ -1,12 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import {
   api, del, errText, patch, post, qs,
   type Item, type Movement, type MovementResult, type Page,
 } from '../api'
-import {
-  btnDanger, btnGhost, btnPrimary, cardCls, Dialog, ErrorBox, fmtTime, inputCls, Label, NamedSelect,
-} from '../ui'
+import { btnGhost, btnPrimary, cardCls, ErrorBox, fmtTime, inputCls, Label, NamedSelect } from '../ui'
 
 const MAX_IMAGE = 5 * 1024 * 1024
 
@@ -69,7 +67,6 @@ function parseWhole(s: string, min: number): number | null {
 
 export default function ItemPage() {
   const { id } = useParams()
-  const navigate = useNavigate()
   const fileInput = useRef<HTMLInputElement>(null)
 
   const [item, setItem] = useState<Item | null>(null)
@@ -81,7 +78,6 @@ export default function ItemPage() {
   const [borrowN, setBorrowN] = useState('1')
   const [returnN, setReturnN] = useState('1')
   const [countN, setCountN] = useState('')
-  const [dialog, setDialog] = useState<'delete' | 'zero' | null>(null)
 
   const loadMoves = () =>
     api<Page<Movement>>('/movements' + qs({ item_id: id, page_size: 20 }))
@@ -112,7 +108,6 @@ export default function ItemPage() {
 
   async function save(field: string, value: unknown) {
     setItem(await patch<Item>(`/items/${id}`, { [field]: value }))
-    if (field === 'name' || field === 'manufacturer_number') loadMoves() // log shows the new name / number
   }
 
   async function saveRef(field: 'category_id' | 'location_id', value: number | null) {
@@ -156,29 +151,7 @@ export default function ItemPage() {
   async function setCount() {
     const n = parseWhole(countN, 0)
     if (n === null) return setNotice({ kind: 'err', text: 'Enter a whole number, 0 or more.' })
-    if (n === 0) return setDialog('zero')
     await stock('ADJUST', n)
-  }
-
-  async function keepAtZero() {
-    setDialog(null)
-    await stock('ADJUST', 0)
-  }
-
-  async function deleteItem() {
-    setDialog(null)
-    try {
-      await del(`/items/${id}`)
-      navigate('/items')
-    } catch (e) {
-      setNotice({ kind: 'err', text: errText(e) })
-    }
-  }
-
-  // "Delete" from the zero dialog: log the count going to 0 first, then remove the item.
-  async function zeroThenDelete() {
-    setDialog(null)
-    if (await stock('ADJUST', 0)) await deleteItem()
   }
 
   async function toggleLowStock() {
@@ -227,9 +200,6 @@ export default function ItemPage() {
             {item.manufacturer_number && <span className="ml-2 font-mono text-sm font-normal text-slate-500">{item.manufacturer_number}</span>}
           </h1>
         </div>
-        <button type="button" className={btnGhost + ' text-red-700'} onClick={() => setDialog('delete')}>
-          Delete item
-        </button>
       </div>
 
       {/* Stock */}
@@ -372,39 +342,6 @@ export default function ItemPage() {
         <span>Created: {fmtTime(item.created_at)}</span>
         <span>Last updated: {fmtTime(item.updated_at)}</span>
       </div>
-
-      {dialog === 'delete' && (
-        <Dialog title="Delete this item?">
-          <p className="mb-4 text-sm text-slate-600">
-            “{item.name}” and its picture will be removed. Its movement history stays in the log.
-          </p>
-          <div className="flex justify-end gap-2">
-            <button type="button" className={btnGhost} onClick={() => setDialog(null)}>
-              Cancel
-            </button>
-            <button type="button" className={btnDanger} onClick={deleteItem}>
-              Delete
-            </button>
-          </div>
-        </Dialog>
-      )}
-
-      {dialog === 'zero' && (
-        <Dialog title="Quantity is 0">
-          <p className="mb-4 text-sm text-slate-600">Quantity is 0. Keep at 0 or Delete item?</p>
-          <div className="flex flex-wrap justify-end gap-2">
-            <button type="button" className={btnGhost} onClick={() => setDialog(null)}>
-              Cancel
-            </button>
-            <button type="button" className={btnPrimary} onClick={keepAtZero}>
-              Keep at 0
-            </button>
-            <button type="button" className={btnDanger} onClick={zeroThenDelete}>
-              Delete item
-            </button>
-          </div>
-        </Dialog>
-      )}
     </div>
   )
 }

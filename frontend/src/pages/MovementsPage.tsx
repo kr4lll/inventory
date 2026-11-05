@@ -92,15 +92,9 @@ export default function MovementsPage() {
                   <tr key={m.id} className="border-t border-slate-100">
                     <td className="whitespace-nowrap px-3 py-2 text-slate-500">{fmtTime(m.created_at)}</td>
                     <td className="px-3 py-2">
-                      {m.item_id !== null ? (
-                        <Link to={'/items/' + m.item_id} className="font-medium text-blue-700 hover:underline">
-                          {m.item_name}
-                        </Link>
-                      ) : (
-                        <span className="font-medium" title="This item was deleted">
-                          {m.item_name}
-                        </span>
-                      )}
+                      <Link to={'/items/' + m.item_id} className="font-medium text-blue-700 hover:underline">
+                        {m.item_name}
+                      </Link>
                       {m.item_manufacturer_number && <span className="ml-2 font-mono text-xs text-slate-500">{m.item_manufacturer_number}</span>}
                     </td>
                     <td className="px-3 py-2">
