@@ -5,9 +5,10 @@ from typing import Optional
 
 from dotenv import load_dotenv
 from sqlalchemy import (
-    Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text,
+    Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint,
     create_engine, func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
@@ -54,12 +55,36 @@ class Person(Base):
     name: Mapped[str] = mapped_column(String(100), unique=True)
 
 
+class TemplateField(Base):
+    __tablename__ = "template_fields"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    subcategory_id: Mapped[int] = mapped_column(ForeignKey("subcategories.id"), index=True)
+    label: Mapped[str] = mapped_column(String(100))
+    position: Mapped[int] = mapped_column(Integer)  # order of creation
+
+    # Deferred so two labels can swap names in one save.
+    __table_args__ = (
+        UniqueConstraint("subcategory_id", "label", name="uq_template_fields_label", deferrable=True, initially="DEFERRED"),
+    )
+
+
+class Subcategory(Base):
+    __tablename__ = "subcategories"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), index=True)
+
+    fields: Mapped[list[TemplateField]] = relationship(lazy="selectin", order_by=TemplateField.position)
+
+
 class Item(Base):
     __tablename__ = "items"
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(200))
+    name: Mapped[str] = mapped_column(String(500), unique=True)  # generated: prefix + "." + number
     manufacturer_number: Mapped[Optional[str]] = mapped_column(String(100), index=True)  # optional, not unique
-    category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categories.id"))
+    category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"))
+    subcategory_id: Mapped[int] = mapped_column(ForeignKey("subcategories.id"), index=True)
+    field_values: Mapped[dict] = mapped_column(JSONB, default=dict)  # {field_id: string}; a missing key means empty
     location_id: Mapped[Optional[int]] = mapped_column(ForeignKey("locations.id"))
     owner_id: Mapped[int] = mapped_column(ForeignKey("people.id"), index=True)
     quantity: Mapped[int] = mapped_column(Integer, default=1)
@@ -72,7 +97,8 @@ class Item(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    category: Mapped[Optional[Category]] = relationship(lazy="selectin")
+    category: Mapped[Category] = relationship(lazy="selectin")
+    subcategory: Mapped[Subcategory] = relationship(lazy="selectin")
     location: Mapped[Optional[Location]] = relationship(lazy="selectin")
     owner: Mapped[Person] = relationship(lazy="selectin")
 

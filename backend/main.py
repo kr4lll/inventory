@@ -10,16 +10,21 @@ from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
-from models import IMAGE_DIR, ROOT, Base, Category, Item, Location, Movement, Person, SessionLocal, engine
+from models import (
+    IMAGE_DIR, ROOT, Base, Category, Item, Location, Movement, Person, SessionLocal, Subcategory, TemplateField, engine,
+)
 from schemas import (
     HomeOut, ItemCreate, ItemOut, ItemPage, ItemUpdate, MovementIn, MovementOut,
-    MovementPage, MovementResult, NameIn, NameOut, PersonOutstanding,
+    MovementPage, MovementResult, NameIn, NameOut, PersonOutstanding, SubcategoryCreate, SubcategoryOut,
+    SubcategoryUpdate,
 )
 
 DEFAULT_CATEGORIES = ["Mechanical", "Electrical", "Electronics", "EE"]
 DEFAULT_PEOPLE = ["Mecatron", "IES", "JPC", "Project House"]
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 IMAGE_EXT = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}
+MAX_NAME_LENGTH = 500
+NAME_LOCK = 727001  # Postgres advisory lock held by everything that generates or changes item names
 
 
 @asynccontextmanager
@@ -106,6 +111,50 @@ def check_refs(db: Session, category_id: Optional[int], location_id: Optional[in
         raise HTTPException(422, "Unknown owner.")
 
 
+def lock_names(db: Session):
+    db.execute(select(func.pg_advisory_xact_lock(NAME_LOCK)))  # released when the transaction ends
+
+
+def check_name_length(name: str):
+    if len(name) > MAX_NAME_LENGTH:
+        raise HTTPException(422, f"The item name would be too long (max {MAX_NAME_LENGTH} characters).")
+
+
+def name_prefix(sub: Subcategory, values: dict[str, str]) -> str:
+    parts = [sub.name] + [values.get(str(f.id), "") for f in sub.fields]
+    return ".".join(p for p in parts if p)
+
+
+# Call with lock_names held, so two saves can never pick the same number.
+def next_name(db: Session, prefix: str) -> str:
+    start = prefix + "."
+    names = db.scalars(select(Item.name).where(Item.name.startswith(start, autoescape=True))).all()
+    numbers = [int(n[len(start):]) for n in names if n[len(start):].isdecimal()]
+    name = f"{start}{max(numbers, default=0) + 1}"
+    check_name_length(name)
+    return name
+
+
+def merge_values(sub: Subcategory, new: dict[str, str], current: dict[str, str]) -> dict[str, str]:
+    if set(new) - {str(f.id) for f in sub.fields}:
+        raise HTTPException(422, "Unknown template field.")
+    return {**current, **{k: v.strip() for k, v in new.items()}}
+
+
+def check_labels(labels: list[str]):
+    lowered = [label.lower() for label in labels]
+    if len(set(lowered)) != len(lowered):
+        raise HTTPException(409, "Two fields have the same label.")
+
+
+def check_subcategory_name(db: Session, name: str, exclude_id: Optional[int] = None):
+    stmt = select(Subcategory).where(func.lower(Subcategory.name) == name.lower())
+    if exclude_id is not None:
+        stmt = stmt.where(Subcategory.id != exclude_id)
+    if db.scalar(stmt):
+        raise HTTPException(409, f"Subcategory '{name}' already exists.")
+
+
 def like(q: str) -> str:
     return "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
@@ -173,6 +222,63 @@ def add_person(body: NameIn, db: Session = Depends(get_db)):
     return create_named(db, Person, body.name, "Person")
 
 
+# ---------- subcategories ----------
+
+@api.get("/subcategories", response_model=list[SubcategoryOut])
+def list_subcategories(category_id: Optional[int] = None, db: Session = Depends(get_db)):
+    where = [] if category_id is None else [Subcategory.category_id == category_id]
+    return db.scalars(select(Subcategory).where(*where).order_by(func.lower(Subcategory.name))).all()
+
+
+@api.post("/subcategories", response_model=SubcategoryOut, status_code=201)
+def add_subcategory(body: SubcategoryCreate, db: Session = Depends(get_db)):
+    check_refs(db, body.category_id, None)
+    check_subcategory_name(db, body.name)
+    check_labels(body.fields)
+    sub = Subcategory(
+        name=body.name,
+        category_id=body.category_id,
+        fields=[TemplateField(label=label, position=i) for i, label in enumerate(body.fields)],
+    )
+    db.add(sub)
+    commit(db)
+    db.refresh(sub)
+    return sub
+
+
+@api.patch("/subcategories/{subcategory_id}", response_model=SubcategoryOut)
+def update_subcategory(subcategory_id: int, body: SubcategoryUpdate, db: Session = Depends(get_db)):
+    lock_names(db)
+    sub = db.get(Subcategory, subcategory_id)
+    if sub is None:
+        raise HTTPException(404, "Subcategory not found.")
+
+    if body.name is not None and body.name != sub.name:
+        check_subcategory_name(db, body.name, exclude_id=sub.id)
+        # Same prefix values and number, only the subcategory part of each name changes.
+        items = db.scalars(select(Item).where(Item.subcategory_id == sub.id).with_for_update()).all()
+        for item in items:
+            item.name = body.name + item.name[len(sub.name):]
+            check_name_length(item.name)
+        sub.name = body.name
+
+    by_id = {f.id: f for f in sub.fields}
+    position = max((f.position for f in sub.fields), default=-1)
+    for edit in body.fields:
+        if edit.id is None:
+            position += 1
+            sub.fields.append(TemplateField(label=edit.label, position=position))
+        elif edit.id in by_id:
+            by_id[edit.id].label = edit.label
+        else:
+            raise HTTPException(422, "Unknown template field.")
+    check_labels([f.label for f in sub.fields])
+
+    commit(db)
+    db.refresh(sub)
+    return sub
+
+
 # ---------- items ----------
 
 @api.get("/items", response_model=ItemPage)
@@ -217,7 +323,18 @@ def list_items(
 @api.post("/items", response_model=ItemOut, status_code=201)
 def create_item(body: ItemCreate, db: Session = Depends(get_db)):
     check_refs(db, body.category_id, body.location_id, body.owner_id)
-    item = Item(**body.model_dump())
+    lock_names(db)
+    sub = db.get(Subcategory, body.subcategory_id)
+    if sub is None:
+        raise HTTPException(422, "Unknown subcategory.")
+    if sub.category_id != body.category_id:
+        raise HTTPException(422, "That subcategory belongs to a different category.")
+    values = merge_values(sub, body.field_values, {})
+    missing = [f.label for f in sub.fields if not values.get(str(f.id))]
+    if missing:
+        raise HTTPException(422, "Please fill in: " + ", ".join(missing) + ".")
+    data = body.model_dump(exclude={"field_values"})
+    item = Item(**data, field_values=values, name=next_name(db, name_prefix(sub, values)))
     db.add(item)
     commit(db)
     db.refresh(item)
@@ -231,11 +348,19 @@ def read_item(item_id: int, db: Session = Depends(get_db)):
 
 @api.patch("/items/{item_id}", response_model=ItemOut)
 def update_item(item_id: int, body: ItemUpdate, db: Session = Depends(get_db)):
-    item = get_item(db, item_id, lock=True)
     data = body.model_dump(exclude_unset=True)
-    check_refs(db, data.get("category_id"), data.get("location_id"))
+    new_values = data.pop("field_values", None)
+    if new_values is not None:
+        lock_names(db)  # before the item lock, the same order as renaming a subcategory
+    item = get_item(db, item_id, lock=True)
+    check_refs(db, None, data.get("location_id"))
     for key, value in data.items():
         setattr(item, key, value)
+    if new_values is not None:
+        item.field_values = merge_values(item.subcategory, new_values, item.field_values)
+        prefix = name_prefix(item.subcategory, item.field_values)
+        if prefix != item.name.rsplit(".", 1)[0]:
+            item.name = next_name(db, prefix)
     commit(db)
     db.refresh(item)
     return item_out(db, item)

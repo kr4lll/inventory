@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import {
   api, del, errText, patch, post, qs,
   type Item, type Movement, type MovementResult, type Page,
 } from '../api'
-import { btnGhost, btnPrimary, cardCls, ErrorBox, fmtTime, inputCls, Label, NamedSelect } from '../ui'
+import {
+  btnGhost, btnPrimary, cardCls, ErrorBox, fmtTime, inputCls, Label, namePrefix, NamedSelect, SubcategoryDialog,
+} from '../ui'
 
 const MAX_IMAGE = 5 * 1024 * 1024
 
@@ -60,6 +62,65 @@ function AutoField({
   )
 }
 
+// The template values, saved together with one button because saving can change the item's name.
+function TemplateValues({ item, onSaved }: { item: Item; onSaved: (item: Item) => void }) {
+  const [values, setValues] = useState(item.field_values)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => setValues(item.field_values), [JSON.stringify(item.field_values)])
+
+  const sub = item.subcategory
+  if (sub.fields.length === 0) return null
+  const changed = sub.fields.some((f) => (values[f.id] ?? '').trim() !== (item.field_values[f.id] ?? ''))
+  const prefix = namePrefix(sub, values)
+  const samePrefix = prefix === item.name.slice(0, item.name.lastIndexOf('.'))
+
+  async function save() {
+    setBusy(true)
+    try {
+      onSaved(await patch<Item>(`/items/${item.id}`, { field_values: values }))
+      setError('')
+    } catch (e) {
+      setError(errText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded border border-slate-200 p-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        {sub.fields.map((f) => {
+          const needsValue = !item.field_values[f.id]
+          return (
+            <div key={f.id}>
+              <Label text={f.label}>
+                <input
+                  className={needsValue ? inputCls.replace('border-slate-300 bg-white', 'border-amber-400 bg-amber-50') : inputCls}
+                  value={values[f.id] ?? ''}
+                  onChange={(e) => setValues({ ...values, [f.id]: e.target.value })}
+                />
+              </Label>
+              {needsValue && <p className="mt-1 text-xs font-medium text-amber-800">Needs value</p>}
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="button" className={btnGhost} disabled={!changed || busy} onClick={save}>
+          Save
+        </button>
+        {changed && (
+          <span className="text-sm text-slate-600">
+            Name will be <span className="font-mono">{samePrefix ? item.name : prefix + '.#'}</span>
+          </span>
+        )}
+      </div>
+      <ErrorBox message={error} />
+    </div>
+  )
+}
+
 function parseWhole(s: string, min: number): number | null {
   const n = Number(s)
   return s.trim() !== '' && Number.isInteger(n) && n >= min ? n : null
@@ -67,13 +128,16 @@ function parseWhole(s: string, min: number): number | null {
 
 export default function ItemPage() {
   const { id } = useParams()
+  const routerLocation = useLocation()
   const fileInput = useRef<HTMLInputElement>(null)
 
   const [item, setItem] = useState<Item | null>(null)
   const [moves, setMoves] = useState<Movement[]>([])
   const [loadError, setLoadError] = useState('')
   const [notice, setNotice] = useState<Notice>(null)
-  const [imageError, setImageError] = useState('')
+  // Set when the New item page created the item but could not upload its picture.
+  const [imageError, setImageError] = useState<string>(routerLocation.state?.imageError ?? '')
+  const [editingTemplate, setEditingTemplate] = useState(false)
   const [busy, setBusy] = useState(false)
   const [borrowN, setBorrowN] = useState('1')
   const [returnN, setReturnN] = useState('1')
@@ -111,9 +175,9 @@ export default function ItemPage() {
     setItem(await patch<Item>(`/items/${id}`, { [field]: value }))
   }
 
-  async function saveRef(field: 'category_id' | 'location_id', value: number | null) {
+  async function saveLocation(value: number | null) {
     try {
-      await save(field, value)
+      await save('location_id', value)
       setNotice(null)
     } catch (e) {
       setNotice({ kind: 'err', text: errText(e) })
@@ -302,19 +366,29 @@ export default function ItemPage() {
           <ErrorBox message={imageError} />
         </div>
 
-        <AutoField label="Name" value={item.name} onSave={(v) => save('name', v)} />
-        <AutoField label="Manufacturer Number" mono value={item.manufacturer_number ?? ''} onSave={(v) => save('manufacturer_number', v)} />
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Label text="Category">
-            <NamedSelect kind="categories" value={item.category_id} onChange={(v) => saveRef('category_id', v)} required />
-          </Label>
-          <Label text="Location">
-            <NamedSelect kind="locations" value={item.location_id} onChange={(v) => saveRef('location_id', v)} required />
-          </Label>
+        <div className="grid gap-4 text-sm sm:grid-cols-3">
+          <div>
+            <span className="font-medium text-slate-700">Category:</span> {item.category.name}
+          </div>
+          <div>
+            <span className="font-medium text-slate-700">Subcategory:</span> {item.subcategory.name}
+            <button
+              type="button"
+              className="ml-2 rounded border border-slate-300 px-1.5 py-0.5 text-xs hover:bg-slate-100"
+              onClick={() => setEditingTemplate(true)}
+            >
+              Edit
+            </button>
+          </div>
+          <div>
+            <span className="font-medium text-slate-700">Owner:</span> {item.owner.name}
+          </div>
         </div>
-        <p className="text-sm">
-          <span className="font-medium text-slate-700">Owner:</span> {item.owner.name}
-        </p>
+        <TemplateValues item={item} onSaved={setItem} />
+        <AutoField label="Manufacturer Number" mono value={item.manufacturer_number ?? ''} onSave={(v) => save('manufacturer_number', v)} />
+        <Label text="Location">
+          <NamedSelect kind="locations" value={item.location_id} onChange={saveLocation} required />
+        </Label>
         <AutoField label="Note" multiline rows={2} value={item.note} onSave={(v) => save('note', v)} />
       </section>
 
@@ -358,6 +432,18 @@ export default function ItemPage() {
         <span>Created: {fmtTime(item.created_at)}</span>
         <span>Last updated: {fmtTime(item.updated_at)}</span>
       </div>
+
+      {editingTemplate && (
+        <SubcategoryDialog
+          categoryId={item.category_id}
+          sub={item.subcategory}
+          onClose={() => setEditingTemplate(false)}
+          onSaved={async () => {
+            setEditingTemplate(false)
+            setItem(await api<Item>(`/items/${id}`)) // the name may have changed
+          }}
+        />
+      )}
     </div>
   )
 }

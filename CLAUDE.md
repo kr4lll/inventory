@@ -27,9 +27,12 @@ API docs: http://127.0.0.1:8000/docs
 - Items cannot be removed. `movement.item_id` is a required FK (ON DELETE RESTRICT), and movements show the item's current name and Manufacturer Number through a join.
 - Pictures can be replaced or removed; both delete the old file from disk.
 - Manufacturer Number is optional and not unique. Empty input is stored as NULL.
+- Item names are generated, never typed, and unique: `prefix.number`, where prefix = subcategory name + non-blank field values (trimmed, case-sensitive) in template position order, joined with `.`. Number = highest existing number for that prefix + 1. Everything that generates or changes names holds a Postgres advisory lock (`lock_names`) for its transaction.
+- Item category, subcategory and owner are not editable after creation. Template values are all required at creation. Changing them to a new prefix gives the item the next number for that prefix; a field added later stays empty and shows "Needs value" until saved, without changing names before then.
+- Subcategory names are unique across the app. `PATCH /subcategories/{id}` can only rename it (its items keep their numbers), rename fields or append fields.
 - Pressing Enter in the search box opens an item only if exactly one item has that exact Manufacturer Number (trimmed, case-insensitive) and no other item matches; otherwise it lists the exact matches, or the partial matches if there are none.
 - Barcode scans end with Enter: search and form inputs must never submit a form on Enter (the search box has no `<form>`, the new-item form blocks Enter in inputs).
 - Images: JPEG/PNG/WebP, max 5 MB, verified with Pillow, saved under a random name in `data/images/`; only the path is stored on the item.
 
 ## Out of scope (do not build)
-Login, projects, suppliers, purchase links, prices, quick add, archive/restore, reorder levels, custom fields, CSV import/export, backups, camera barcode scanning, label printing, tests, Alembic, containerizing the backend/frontend.
+Login, projects, suppliers, purchase links, prices, quick add, archive/restore, reorder levels, CSV import/export, backups, camera barcode scanning, label printing, tests, Alembic, containerizing the backend/frontend, editing or removing people, removing subcategories, removing or reordering template fields, changing the category, subcategory or owner of an existing item.

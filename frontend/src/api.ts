@@ -1,13 +1,23 @@
 export type NameOut = { id: number; name: string }
 
+export type Subcategory = {
+  id: number
+  name: string
+  category_id: number
+  fields: { id: number; label: string; position: number }[]
+}
+
 export type Item = {
   id: number
   name: string
   manufacturer_number: string | null
-  category_id: number | null
+  category_id: number
+  subcategory_id: number
+  field_values: Record<string, string>
   location_id: number | null
   owner_id: number
-  category: NameOut | null
+  category: NameOut
+  subcategory: Subcategory
   location: NameOut | null
   owner: NameOut
   quantity: number
