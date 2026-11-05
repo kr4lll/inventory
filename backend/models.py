@@ -55,7 +55,6 @@ class Item(Base):
     manufacturer_number: Mapped[Optional[str]] = mapped_column(String(100), index=True)  # optional, not unique
     category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categories.id"))
     location_id: Mapped[Optional[int]] = mapped_column(ForeignKey("locations.id"))
-    description: Mapped[str] = mapped_column(Text, default="")
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     low_stock: Mapped[bool] = mapped_column(Boolean, default=False)
     note: Mapped[str] = mapped_column(Text, default="")

@@ -329,7 +329,6 @@ export default function ItemPage() {
             <NamedSelect kind="locations" value={item.location_id} onChange={(v) => saveRef('location_id', v)} required />
           </Label>
         </div>
-        <AutoField label="Description" multiline value={item.description} onSave={(v) => save('description', v)} />
         <AutoField label="Note" multiline rows={2} value={item.note} onSave={(v) => save('note', v)} />
       </section>
 

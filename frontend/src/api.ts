@@ -8,7 +8,6 @@ export type Item = {
   location_id: number | null
   category: NameOut | null
   location: NameOut | null
-  description: string
   quantity: number
   low_stock: boolean
   note: string

@@ -10,7 +10,6 @@ export default function NewItemPage() {
     name: '',
     manufacturer_number: sp.get('manufacturer_number') ?? '', // pre-filled when coming from a barcode scan that matched nothing
     quantity: '1',
-    description: '',
     note: '',
     how_to_buy: '',
   })
@@ -73,9 +72,6 @@ export default function NewItemPage() {
         </div>
         <Label text="Quantity *">
           <input type="number" min={0} step={1} required className={inputCls + ' w-32'} {...text('quantity')} />
-        </Label>
-        <Label text="Description">
-          <textarea rows={3} className={inputCls} {...text('description')} />
         </Label>
         <Label text="Note">
           <textarea rows={2} className={inputCls} placeholder="e.g. this battery was overcharged" {...text('note')} />

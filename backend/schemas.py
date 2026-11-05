@@ -34,7 +34,6 @@ class ItemCreate(ManufacturerNumberMixin):
     name: ItemName
     category_id: int
     location_id: int
-    description: str = ""
     quantity: int = 1
     low_stock: bool = False
     note: str = ""
@@ -54,14 +53,13 @@ class ItemUpdate(ManufacturerNumberMixin):
     name: Optional[ItemName] = None
     category_id: Optional[int] = None
     location_id: Optional[int] = None
-    description: Optional[str] = None
     low_stock: Optional[bool] = None
     note: Optional[str] = None
     how_to_buy: Optional[str] = None
 
     @model_validator(mode="after")
     def no_nulls(self):
-        for f in ("name", "category_id", "location_id", "description", "low_stock", "note", "how_to_buy"):
+        for f in ("name", "category_id", "location_id", "low_stock", "note", "how_to_buy"):
             if f in self.model_fields_set and getattr(self, f) is None:
                 raise ValueError(f"{f} cannot be null")
         return self
@@ -76,7 +74,6 @@ class ItemOut(BaseModel):
     location_id: Optional[int]
     category: Optional[NameOut]
     location: Optional[NameOut]
-    description: str
     quantity: int
     low_stock: bool
     note: str
