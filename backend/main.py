@@ -390,7 +390,10 @@ def add_movement(item_id: int, body: MovementIn, db: Session = Depends(get_db)):
     elif body.type == "RETURN":
         out = person_outstanding(db, item.id, person.id)
         if body.quantity > out:
-            warning = f"{person.name} returned {body.quantity}, but only {out} recorded as borrowed by them. The quantity was increased anyway."
+            raise HTTPException(
+                409,
+                f"Cannot return {body.quantity}: {person.name} has only {out} recorded as borrowed.",
+            )
         item.quantity += body.quantity
         delta = body.quantity
     else:  # ADJUST: body.quantity is the new actual count
