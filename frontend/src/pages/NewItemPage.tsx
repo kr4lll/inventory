@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, errText, post, type Item, type Subcategory } from '../api'
 import { btnGhost, btnPrimary, cardCls, ErrorBox, inputCls, Label, namePrefix, NamedSelect, SubcategoryDialog } from '../ui'
@@ -21,6 +21,7 @@ export default function NewItemPage() {
   const [locationId, setLocationId] = useState<number | null>(null)
   const [ownerId, setOwnerId] = useState<number | null>(null)
   const [picture, setPicture] = useState<File | null>(null)
+  const pictureInput = useRef<HTMLInputElement>(null)
   const [dialog, setDialog] = useState<'new' | 'edit' | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -187,14 +188,26 @@ export default function NewItemPage() {
           <Label text="How to buy">
             <textarea rows={3} className={inputCls} {...text('how_to_buy')} />
           </Label>
-          <Label text="Picture (JPEG, PNG or WebP, up to 5 MB)">
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              className="block text-sm"
-              onChange={(e) => setPicture(e.target.files?.[0] ?? null)}
-            />
-          </Label>
+          <div>
+            <span className="mb-1 block text-sm font-medium text-slate-700">Picture (JPEG, PNG or WebP, up to 5 MB)</span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
+                onClick={() => pictureInput.current?.click()}
+              >
+                Choose file
+              </button>
+              <span className="min-w-0 truncate text-sm text-slate-600">{picture?.name ?? 'No file chosen'}</span>
+              <input
+                ref={pictureInput}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(e) => setPicture(e.target.files?.[0] ?? null)}
+              />
+            </div>
+          </div>
         </div>
         <ErrorBox message={error} />
         <div className="flex gap-2">
