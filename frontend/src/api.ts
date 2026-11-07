@@ -1,14 +1,25 @@
 export type NameOut = { id: number; name: string }
 
+export type Subcategory = {
+  id: number
+  name: string
+  category_id: number
+  fields: { id: number; label: string; position: number }[]
+}
+
 export type Item = {
   id: number
   name: string
-  sku: string | null
-  category_id: number | null
+  manufacturer_number: string | null
+  category_id: number
+  subcategory_id: number
+  field_values: Record<string, string>
   location_id: number | null
-  category: NameOut | null
+  owner_id: number
+  category: NameOut
+  subcategory: Subcategory
   location: NameOut | null
-  description: string
+  owner: NameOut
   quantity: number
   low_stock: boolean
   note: string
@@ -17,18 +28,27 @@ export type Item = {
   image_url: string | null
   created_at: string
   updated_at: string
-  outstanding: number | null
+  outstanding: { person: string; quantity: number }[] | null
 }
 
 export type Movement = {
   id: number
-  item_id: number | null
+  item_id: number
   item_name: string
-  item_sku: string | null
+  item_manufacturer_number: string | null
+  person: string | null
   type: 'BORROW' | 'RETURN' | 'ADJUST'
   quantity: number
   created_at: string
-  outstanding: number | null
+  outstanding: number
+}
+
+export type OutstandingMovement = {
+  item_id: number
+  item_name: string
+  item_manufacturer_number: string | null
+  person: string
+  outstanding: number
 }
 
 export type Page<T> = { items: T[]; total: number; page: number; page_size: number }

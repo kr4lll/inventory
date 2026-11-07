@@ -9,8 +9,10 @@ export default function ItemsPage() {
   const navigate = useNavigate()
   const [get, set] = useQueryState()
   const q = get('q')
+  const exact = get('exact') === '1' // list only exact Manufacturer Number matches for q (after a scan)
   const category = get('category')
   const location = get('location')
+  const owner = get('owner')
   const page = Number(get('page')) || 1
 
   const [text, setText] = useState(q)
@@ -19,6 +21,7 @@ export default function ItemsPage() {
   const [scanMiss, setScanMiss] = useState('')
   const [categories] = useNamed('categories')
   const [locations] = useNamed('locations')
+  const [people] = useNamed('people')
 
   // Search as you type (debounced).
   useEffect(() => {
@@ -30,7 +33,18 @@ export default function ItemsPage() {
 
   useEffect(() => {
     let cancelled = false
-    api<Page<Item>>('/items' + qs({ q, category_id: category, location_id: location, page, page_size: PAGE_SIZE }))
+    api<Page<Item>>(
+      '/items' +
+        qs({
+          q: exact ? undefined : q,
+          manufacturer_number: exact ? q : undefined,
+          category_id: category,
+          location_id: location,
+          owner_id: owner,
+          page,
+          page_size: PAGE_SIZE,
+        }),
+    )
       .then((d) => {
         if (cancelled) return
         setData(d)
@@ -40,27 +54,30 @@ export default function ItemsPage() {
     return () => {
       cancelled = true
     }
-  }, [q, category, location, page])
+  }, [q, exact, category, location, owner, page])
 
   // Barcode scanners type the code and press Enter. There is no <form> here, so Enter can never submit anything.
   async function onEnter() {
     const code = text.trim()
     if (!code) return
     try {
-      const res = await api<Page<Item>>('/items' + qs({ q: code, page_size: PAGE_SIZE }))
-      const lower = code.toLowerCase()
-      const exact = res.items.filter((i) => i.sku?.toLowerCase() === lower)
-      const partial = res.items.filter((i) => i.sku?.toLowerCase().includes(lower))
-      if (exact.length === 1) return navigate('/items/' + exact[0].id)
-      if (res.total === 1 && partial.length === 1) return navigate('/items/' + partial[0].id)
-      setScanMiss(res.total === 0 ? code : '')
-      set({ q: code, page: '' })
+      const [matches, all] = await Promise.all([
+        api<Page<Item>>('/items' + qs({ manufacturer_number: code, page_size: 1 })),
+        api<Page<Item>>('/items' + qs({ q: code, page_size: 1 })),
+      ])
+      // Open directly only when one item matches exactly and nothing else matches at all.
+      if (matches.total === 1 && all.total === 1) return navigate('/items/' + matches.items[0].id)
+      setScanMiss(all.total === 0 ? code : '')
+      setText(code)
+      // Exact matches hide partial ones, and a scan looks across all categories, locations and owners.
+      if (matches.total > 0) set({ q: code, exact: '1', category: '', location: '', owner: '', page: '' })
+      else set({ q: code, exact: '', page: '' })
     } catch (e) {
       setError(errText(e))
     }
   }
 
-  const filtered = q || category || location
+  const filtered = q || category || location || owner
 
   return (
     <div className="space-y-4">
@@ -68,11 +85,12 @@ export default function ItemsPage() {
         <input
           autoFocus
           className={inputCls + ' flex-1 min-w-48'}
-          placeholder="Search name or SKU (or scan a barcode)"
+          placeholder="Search name or Manufacturer Number (or scan a barcode)"
           value={text}
           onChange={(e) => {
             setText(e.target.value)
             setScanMiss('')
+            if (exact) set({ exact: '' })
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
@@ -105,6 +123,18 @@ export default function ItemsPage() {
             </option>
           ))}
         </select>
+        <select
+          className={inputCls + ' w-auto'}
+          value={owner}
+          onChange={(e) => set({ owner: e.target.value, page: '' })}
+        >
+          <option value="">All owners</option>
+          {people.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       <ErrorBox message={error} />
@@ -112,9 +142,9 @@ export default function ItemsPage() {
       {scanMiss && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm">
           <span>
-            No item with SKU <span className="font-mono">{scanMiss}</span>.
+            No item with Manufacturer Number <span className="font-mono">{scanMiss}</span>.
           </span>
-          <Link className={btnPrimary} to={'/items/new' + qs({ sku: scanMiss })}>
+          <Link className={btnPrimary} to={'/items/new' + qs({ manufacturer_number: scanMiss })}>
             Add new item
           </Link>
         </div>
@@ -137,9 +167,10 @@ export default function ItemsPage() {
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-100 text-slate-600">
                 <tr>
-                  <th className="px-3 py-2">Name / SKU</th>
+                  <th className="px-3 py-2">Name / Manufacturer Number</th>
                   <th className="px-3 py-2">Category</th>
                   <th className="px-3 py-2">Location</th>
+                  <th className="px-3 py-2">Owner</th>
                   <th className="px-3 py-2 text-right">Qty</th>
                 </tr>
               </thead>
@@ -150,13 +181,14 @@ export default function ItemsPage() {
                       <Link to={'/items/' + i.id} className="font-medium text-blue-700 hover:underline">
                         {i.name}
                       </Link>
-                      {i.sku && <span className="ml-2 font-mono text-xs text-slate-500">{i.sku}</span>}
+                      {i.manufacturer_number && <span className="ml-2 font-mono text-xs text-slate-500">{i.manufacturer_number}</span>}
                       {i.low_stock && (
                         <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">low</span>
                       )}
                     </td>
                     <td className="px-3 py-2 text-slate-600">{i.category?.name ?? '—'}</td>
                     <td className="px-3 py-2 text-slate-600">{i.location?.name ?? '—'}</td>
+                    <td className="px-3 py-2 text-slate-600">{i.owner.name}</td>
                     <td className="px-3 py-2 text-right font-medium">{i.quantity}</td>
                   </tr>
                 ))}

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import {
   api, del, errText, patch, post, qs,
   type Item, type Movement, type MovementResult, type Page,
 } from '../api'
 import {
-  btnDanger, btnGhost, btnPrimary, cardCls, Dialog, ErrorBox, fmtTime, inputCls, Label, NamedSelect,
+  btnGhost, btnPrimary, cardCls, ErrorBox, fmtTime, inputCls, Label, namePrefix, NamedSelect, SubcategoryDialog,
 } from '../ui'
 
 const MAX_IMAGE = 5 * 1024 * 1024
@@ -62,6 +62,65 @@ function AutoField({
   )
 }
 
+// The template values, saved together with one button because saving can change the item's name.
+function TemplateValues({ item, onSaved }: { item: Item; onSaved: (item: Item) => void }) {
+  const [values, setValues] = useState(item.field_values)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => setValues(item.field_values), [JSON.stringify(item.field_values)])
+
+  const sub = item.subcategory
+  if (sub.fields.length === 0) return null
+  const changed = sub.fields.some((f) => (values[f.id] ?? '').trim() !== (item.field_values[f.id] ?? ''))
+  const prefix = namePrefix(sub, values)
+  const samePrefix = prefix === item.name.slice(0, item.name.lastIndexOf('.'))
+
+  async function save() {
+    setBusy(true)
+    try {
+      onSaved(await patch<Item>(`/items/${item.id}`, { field_values: values }))
+      setError('')
+    } catch (e) {
+      setError(errText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded border border-slate-200 p-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        {sub.fields.map((f) => {
+          const needsValue = !item.field_values[f.id]
+          return (
+            <div key={f.id}>
+              <Label text={f.label}>
+                <input
+                  className={needsValue ? inputCls.replace('border-slate-300 bg-white', 'border-amber-400 bg-amber-50') : inputCls}
+                  value={values[f.id] ?? ''}
+                  onChange={(e) => setValues({ ...values, [f.id]: e.target.value })}
+                />
+              </Label>
+              {needsValue && <p className="mt-1 text-xs font-medium text-amber-800">Needs value</p>}
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="button" className={btnGhost} disabled={!changed || busy} onClick={save}>
+          Save
+        </button>
+        {changed && (
+          <span className="text-sm text-slate-600">
+            Name will be <span className="font-mono">{samePrefix ? item.name : prefix + '.#'}</span>
+          </span>
+        )}
+      </div>
+      <ErrorBox message={error} />
+    </div>
+  )
+}
+
 function parseWhole(s: string, min: number): number | null {
   const n = Number(s)
   return s.trim() !== '' && Number.isInteger(n) && n >= min ? n : null
@@ -69,19 +128,21 @@ function parseWhole(s: string, min: number): number | null {
 
 export default function ItemPage() {
   const { id } = useParams()
-  const navigate = useNavigate()
+  const routerLocation = useLocation()
   const fileInput = useRef<HTMLInputElement>(null)
 
   const [item, setItem] = useState<Item | null>(null)
   const [moves, setMoves] = useState<Movement[]>([])
   const [loadError, setLoadError] = useState('')
   const [notice, setNotice] = useState<Notice>(null)
-  const [imageError, setImageError] = useState('')
+  // Set when the New item page created the item but could not upload its picture.
+  const [imageError, setImageError] = useState<string>(routerLocation.state?.imageError ?? '')
+  const [editingTemplate, setEditingTemplate] = useState(false)
   const [busy, setBusy] = useState(false)
   const [borrowN, setBorrowN] = useState('1')
   const [returnN, setReturnN] = useState('1')
   const [countN, setCountN] = useState('')
-  const [dialog, setDialog] = useState<'delete' | 'zero' | null>(null)
+  const [personId, setPersonId] = useState<number | null>(null)
 
   const loadMoves = () =>
     api<Page<Movement>>('/movements' + qs({ item_id: id, page_size: 20 }))
@@ -112,23 +173,22 @@ export default function ItemPage() {
 
   async function save(field: string, value: unknown) {
     setItem(await patch<Item>(`/items/${id}`, { [field]: value }))
-    if (field === 'name' || field === 'sku') loadMoves() // log shows the new name / SKU
   }
 
-  async function saveRef(field: 'category_id' | 'location_id', value: number | null) {
+  async function saveLocation(value: number | null) {
     try {
-      await save(field, value)
+      await save('location_id', value)
       setNotice(null)
     } catch (e) {
       setNotice({ kind: 'err', text: errText(e) })
     }
   }
 
-  async function stock(type: 'BORROW' | 'RETURN' | 'ADJUST', quantity: number): Promise<boolean> {
+  async function stock(type: 'BORROW' | 'RETURN' | 'ADJUST', quantity: number, person_id?: number): Promise<boolean> {
     setBusy(true)
     setNotice(null)
     try {
-      const res = await post<MovementResult>(`/items/${id}/movements`, { type, quantity })
+      const res = await post<MovementResult>(`/items/${id}/movements`, { type, quantity, person_id })
       setItem(res.item)
       if (res.warning) setNotice({ kind: 'warn', text: res.warning })
       await loadMoves()
@@ -144,41 +204,27 @@ export default function ItemPage() {
   async function borrow() {
     const n = parseWhole(borrowN, 1)
     if (n === null) return setNotice({ kind: 'err', text: 'Enter a whole number, 1 or more.' })
-    if (await stock('BORROW', n)) setBorrowN('1')
+    if (personId === null) return setNotice({ kind: 'err', text: 'Please choose a person.' })
+    if (await stock('BORROW', n, personId)) {
+      setBorrowN('1')
+      setPersonId(null) // choose again next time, so nothing is logged against the wrong person
+    }
   }
 
   async function giveBack() {
     const n = parseWhole(returnN, 1)
     if (n === null) return setNotice({ kind: 'err', text: 'Enter a whole number, 1 or more.' })
-    if (await stock('RETURN', n)) setReturnN('1')
+    if (personId === null) return setNotice({ kind: 'err', text: 'Please choose a person.' })
+    if (await stock('RETURN', n, personId)) {
+      setReturnN('1')
+      setPersonId(null)
+    }
   }
 
   async function setCount() {
     const n = parseWhole(countN, 0)
     if (n === null) return setNotice({ kind: 'err', text: 'Enter a whole number, 0 or more.' })
-    if (n === 0) return setDialog('zero')
     await stock('ADJUST', n)
-  }
-
-  async function keepAtZero() {
-    setDialog(null)
-    await stock('ADJUST', 0)
-  }
-
-  async function deleteItem() {
-    setDialog(null)
-    try {
-      await del(`/items/${id}`)
-      navigate('/items')
-    } catch (e) {
-      setNotice({ kind: 'err', text: errText(e) })
-    }
-  }
-
-  // "Delete" from the zero dialog: log the count going to 0 first, then remove the item.
-  async function zeroThenDelete() {
-    setDialog(null)
-    if (await stock('ADJUST', 0)) await deleteItem()
   }
 
   async function toggleLowStock() {
@@ -224,12 +270,9 @@ export default function ItemPage() {
           </Link>
           <h1 className="text-xl font-semibold">
             {item.name}
-            {item.sku && <span className="ml-2 font-mono text-sm font-normal text-slate-500">{item.sku}</span>}
+            {item.manufacturer_number && <span className="ml-2 font-mono text-sm font-normal text-slate-500">{item.manufacturer_number}</span>}
           </h1>
         </div>
-        <button type="button" className={btnGhost + ' text-red-700'} onClick={() => setDialog('delete')}>
-          Delete item
-        </button>
       </div>
 
       {/* Stock */}
@@ -253,6 +296,10 @@ export default function ItemPage() {
         </div>
 
         {notice && <p className={`rounded border px-3 py-2 text-sm ${noticeCls}`}>{notice.text}</p>}
+
+        <Label text="Person (required for Borrow and Return)">
+          <NamedSelect kind="people" value={personId} onChange={setPersonId} required />
+        </Label>
 
         {/* No <form> here, so Enter in a number box never submits anything. */}
         <div className="grid gap-3 sm:grid-cols-3">
@@ -319,17 +366,29 @@ export default function ItemPage() {
           <ErrorBox message={imageError} />
         </div>
 
-        <AutoField label="Name" value={item.name} onSave={(v) => save('name', v)} />
-        <AutoField label="SKU / ID / serial number" mono value={item.sku ?? ''} onSave={(v) => save('sku', v)} />
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Label text="Category">
-            <NamedSelect kind="categories" value={item.category_id} onChange={(v) => saveRef('category_id', v)} required />
-          </Label>
-          <Label text="Location">
-            <NamedSelect kind="locations" value={item.location_id} onChange={(v) => saveRef('location_id', v)} required />
-          </Label>
+        <div className="grid gap-4 text-sm sm:grid-cols-3">
+          <div>
+            <span className="font-medium text-slate-700">Category:</span> {item.category.name}
+          </div>
+          <div>
+            <span className="font-medium text-slate-700">Subcategory:</span> {item.subcategory.name}
+            <button
+              type="button"
+              className="ml-2 rounded border border-slate-300 px-1.5 py-0.5 text-xs hover:bg-slate-100"
+              onClick={() => setEditingTemplate(true)}
+            >
+              Edit
+            </button>
+          </div>
+          <div>
+            <span className="font-medium text-slate-700">Owner:</span> {item.owner.name}
+          </div>
         </div>
-        <AutoField label="Description" multiline value={item.description} onSave={(v) => save('description', v)} />
+        <TemplateValues item={item} onSaved={setItem} />
+        <AutoField label="Manufacturer Number" mono value={item.manufacturer_number ?? ''} onSave={(v) => save('manufacturer_number', v)} />
+        <Label text="Location">
+          <NamedSelect kind="locations" value={item.location_id} onChange={saveLocation} required />
+        </Label>
         <AutoField label="Note" multiline rows={2} value={item.note} onSave={(v) => save('note', v)} />
       </section>
 
@@ -337,9 +396,9 @@ export default function ItemPage() {
       <section className={cardCls + ' space-y-3'}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-semibold">Movements</h2>
-          {item.outstanding !== null && item.outstanding > 0 && (
+          {item.outstanding && item.outstanding.length > 0 && (
             <span className="rounded bg-amber-100 px-2 py-1 text-sm font-semibold text-amber-900 ring-1 ring-amber-300">
-              {item.outstanding} currently borrowed, not yet returned
+              {item.outstanding.map((o) => `${o.person}: ${o.quantity}`).join(', ')} not yet returned
             </span>
           )}
         </div>
@@ -351,8 +410,8 @@ export default function ItemPage() {
               <li key={m.id} className="flex justify-between gap-3 py-1.5">
                 <span className="text-slate-500">{fmtTime(m.created_at)}</span>
                 <span>
-                  {m.type === 'BORROW' && `Borrowed ${m.quantity}`}
-                  {m.type === 'RETURN' && `Returned ${m.quantity}`}
+                  {m.type === 'BORROW' && `${m.person} borrowed ${m.quantity}`}
+                  {m.type === 'RETURN' && `${m.person} returned ${m.quantity}`}
                   {m.type === 'ADJUST' && `Adjusted ${m.quantity > 0 ? '+' : ''}${m.quantity}`}
                 </span>
               </li>
@@ -360,7 +419,7 @@ export default function ItemPage() {
           </ul>
         )}
         <p className="text-xs text-slate-500">
-          Latest 20. <Link className="text-blue-700 hover:underline" to={'/movements' + qs({ q: item.sku ?? item.name })}>See all movements</Link>
+          Latest 20. <Link className="text-blue-700 hover:underline" to={'/movements' + qs({ q: item.name })}>See all movements</Link>
         </p>
       </section>
 
@@ -374,37 +433,16 @@ export default function ItemPage() {
         <span>Last updated: {fmtTime(item.updated_at)}</span>
       </div>
 
-      {dialog === 'delete' && (
-        <Dialog title="Delete this item?">
-          <p className="mb-4 text-sm text-slate-600">
-            “{item.name}” and its picture will be removed. Its movement history stays in the log.
-          </p>
-          <div className="flex justify-end gap-2">
-            <button type="button" className={btnGhost} onClick={() => setDialog(null)}>
-              Cancel
-            </button>
-            <button type="button" className={btnDanger} onClick={deleteItem}>
-              Delete
-            </button>
-          </div>
-        </Dialog>
-      )}
-
-      {dialog === 'zero' && (
-        <Dialog title="Quantity is 0">
-          <p className="mb-4 text-sm text-slate-600">Quantity is 0. Keep at 0 or Delete item?</p>
-          <div className="flex flex-wrap justify-end gap-2">
-            <button type="button" className={btnGhost} onClick={() => setDialog(null)}>
-              Cancel
-            </button>
-            <button type="button" className={btnPrimary} onClick={keepAtZero}>
-              Keep at 0
-            </button>
-            <button type="button" className={btnDanger} onClick={zeroThenDelete}>
-              Delete item
-            </button>
-          </div>
-        </Dialog>
+      {editingTemplate && (
+        <SubcategoryDialog
+          categoryId={item.category_id}
+          sub={item.subcategory}
+          onClose={() => setEditingTemplate(false)}
+          onSaved={async () => {
+            setEditingTemplate(false)
+            setItem(await api<Item>(`/items/${id}`)) // the name may have changed
+          }}
+        />
       )}
     </div>
   )

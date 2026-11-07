@@ -20,13 +20,19 @@ API docs: http://127.0.0.1:8000/docs
 ## Rules to keep
 - No Alembic: tables are created on startup. Schema changes mean resetting the local DB (`docker compose down -v`).
 - Everything works offline: no CDN assets or remote fonts.
-- All routes live under `/api/v1`. Errors: 422 validation, 409 duplicate SKU or business-rule violation, with a human-readable `detail` string.
+- All routes live under `/api/v1`. Errors: 422 validation, 409 business-rule violation, with a human-readable `detail` string.
 - Quantity only changes through `POST /items/{id}/movements` (BORROW / RETURN / ADJUST). It locks the item row (`SELECT ... FOR UPDATE`) and writes the movement in the same transaction. `PATCH /items/{id}` rejects `quantity`.
-- Outstanding borrowed units = sum(BORROW) - sum(RETURN) for the item. It is computed, never stored.
-- Movements keep `item_name` / `item_sku` snapshots. Deleting an item sets `movement.item_id` to NULL and the log stays readable. Renaming an item or changing its SKU updates its movements' snapshot.
-- Empty SKU is stored as NULL (SKU is unique when set).
+- BORROW and RETURN require a person; `movement.person_id` is NULL only for ADJUST. Outstanding borrowed units = sum(BORROW) - sum(RETURN) per person per item. It is computed, never stored. Returning more than a person borrowed warns but is allowed.
+- People (`Person`) are one shared list for borrowers and owners, with no rename or removal. An item's owner is required and not editable after creation.
+- Items cannot be removed. `movement.item_id` is a required FK (ON DELETE RESTRICT), and movements show the item's current name and Manufacturer Number through a join.
+- Pictures can be replaced or removed; both delete the old file from disk.
+- Manufacturer Number is optional and not unique. Empty input is stored as NULL.
+- Item names are generated, never typed, and unique: `prefix.number`, where prefix = subcategory name + non-blank field values (trimmed, case-sensitive) in template position order, joined with `.`. Number = highest existing number for that prefix + 1. Everything that generates or changes names holds a Postgres advisory lock (`lock_names`) for its transaction.
+- Item category, subcategory and owner are not editable after creation. Template values are all required at creation. Changing them to a new prefix gives the item the next number for that prefix; a field added later stays empty and shows "Needs value" until saved, without changing names before then.
+- Subcategory names are unique across the app. `PATCH /subcategories/{id}` can only rename it (its items keep their numbers), rename fields or append fields.
+- Pressing Enter in the search box opens an item only if exactly one item has that exact Manufacturer Number (trimmed, case-insensitive) and no other item matches; otherwise it lists the exact matches, or the partial matches if there are none.
 - Barcode scans end with Enter: search and form inputs must never submit a form on Enter (the search box has no `<form>`, the new-item form blocks Enter in inputs).
 - Images: JPEG/PNG/WebP, max 5 MB, verified with Pillow, saved under a random name in `data/images/`; only the path is stored on the item.
 
 ## Out of scope (do not build)
-Login, projects, borrower names, suppliers, purchase links, prices, quick add, archive/restore, reorder levels, serial-number tables, custom fields, CSV import/export, backups, camera barcode scanning, label printing, tests, Alembic, containerizing the backend/frontend.
+Login, projects, suppliers, purchase links, prices, quick add, archive/restore, reorder levels, CSV import/export, backups, camera barcode scanning, label printing, tests, Alembic, containerizing the backend/frontend, editing or removing people, removing subcategories, removing or reordering template fields, changing the category, subcategory or owner of an existing item.
