@@ -176,8 +176,16 @@ class MovementOut(BaseModel):
     outstanding: int  # units of this item still borrowed
 
 
+class OutstandingMovementOut(BaseModel):
+    item_id: int
+    item_name: str
+    item_manufacturer_number: Optional[str]
+    person: str
+    outstanding: int
+
+
 class MovementPage(BaseModel):
-    items: list[MovementOut]
+    items: list[MovementOut | OutstandingMovementOut]
     total: int
     page: int
     page_size: int

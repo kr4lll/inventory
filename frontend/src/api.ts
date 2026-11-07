@@ -43,6 +43,14 @@ export type Movement = {
   outstanding: number
 }
 
+export type OutstandingMovement = {
+  item_id: number
+  item_name: string
+  item_manufacturer_number: string | null
+  person: string
+  outstanding: number
+}
+
 export type Page<T> = { items: T[]; total: number; page: number; page_size: number }
 export type MovementResult = { item: Item; warning: string | null }
 export type Home = { total_items: number; low_stock_count: number; low_stock_items: Item[] }

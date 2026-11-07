@@ -14,9 +14,9 @@ from models import (
     IMAGE_DIR, ROOT, Base, Category, Item, Location, Movement, Person, SessionLocal, Subcategory, TemplateField, engine,
 )
 from schemas import (
-    HomeOut, ItemCreate, ItemOut, ItemPage, ItemUpdate, MovementIn, MovementOut,
-    MovementPage, MovementResult, NameIn, NameOut, PersonOutstanding, SubcategoryCreate, SubcategoryOut,
-    SubcategoryUpdate,
+    HomeOut, ItemCreate, ItemOut, ItemPage, ItemUpdate, MovementIn, MovementOut, MovementPage,
+    MovementResult, NameIn, NameOut, OutstandingMovementOut, PersonOutstanding, SubcategoryCreate,
+    SubcategoryOut, SubcategoryUpdate,
 )
 
 DEFAULT_CATEGORIES = ["Mechanical", "Electrical", "Electronics", "EE"]
@@ -464,41 +464,72 @@ def list_movements(
     q: Optional[str] = None,
     type: Optional[Literal["BORROW", "RETURN", "ADJUST"]] = None,
     person_id: Optional[int] = None,
-    not_returned: bool = False,  # items where any person still has units out
+    not_returned: bool = False,  # aggregate outstanding units by item and person
     item_id: Optional[int] = None,  # used by the item page to show just one item's history
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    # per-item outstanding units: each person's borrowed minus returned, adding up those still out
+    # Outstanding units are computed per person and item from the movement log.
     per_person = (
-        select(Movement.item_id.label("item_id"), func.sum(DELTA).label("units"))
+        select(
+            Movement.item_id.label("item_id"),
+            Movement.person_id.label("person_id"),
+            func.sum(DELTA).label("units"),
+        )
         .where(Movement.person_id.is_not(None))
         .group_by(Movement.item_id, Movement.person_id)
         .having(func.sum(DELTA) > 0)
         .subquery()
     )
+    q = (q or "").strip()
+    item_where = []
+    if q:
+        p = like(q)
+        item_where.append(or_(Item.name.ilike(p, escape="\\"), Item.manufacturer_number.ilike(p, escape="\\")))
+
+    if not_returned:
+        where = list(item_where)
+        if person_id is not None:
+            where.append(per_person.c.person_id == person_id)
+        total = db.scalar(
+            select(func.count())
+            .select_from(per_person)
+            .join(Item, Item.id == per_person.c.item_id)
+            .where(*where)
+        )
+        rows = db.execute(
+            select(Item.id, Item.name, Item.manufacturer_number, Person.name, per_person.c.units)
+            .select_from(per_person)
+            .join(Item, Item.id == per_person.c.item_id)
+            .join(Person, Person.id == per_person.c.person_id)
+            .where(*where)
+            .order_by(func.lower(Item.name), func.lower(Person.name))
+            .limit(page_size)
+            .offset((page - 1) * page_size)
+        ).all()
+        items = [
+            OutstandingMovementOut(
+                item_id=item_id, item_name=name, item_manufacturer_number=number,
+                person=person, outstanding=int(units),
+            )
+            for item_id, name, number, person, units in rows
+        ]
+        return MovementPage(items=items, total=total, page=page, page_size=page_size)
+
     out_sq = (
         select(per_person.c.item_id, func.sum(per_person.c.units).label("outstanding"))
         .group_by(per_person.c.item_id)
         .subquery()
     )
     join = out_sq.c.item_id == Movement.item_id
-
-    where = []
-    q = (q or "").strip()
-    if q:
-        p = like(q)
-        where.append(or_(Item.name.ilike(p, escape="\\"), Item.manufacturer_number.ilike(p, escape="\\")))
+    where = list(item_where)
     if type:
         where.append(Movement.type == type)
     if item_id is not None:
         where.append(Movement.item_id == item_id)
     if person_id is not None:
         where.append(Movement.person_id == person_id)
-    if not_returned:
-        where.append(out_sq.c.outstanding > 0)
-
     total = db.scalar(select(func.count()).select_from(Movement).join(Item, Item.id == Movement.item_id).outerjoin(out_sq, join).where(*where))
     rows = db.execute(
         select(Movement, Item.name, Item.manufacturer_number, Person.name, func.coalesce(out_sq.c.outstanding, 0))
